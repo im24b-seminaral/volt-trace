@@ -81,7 +81,7 @@ def calculate_all_meter_readings(
         )
 
     return ergebnis
-
+    
 
 if __name__ == "__main__":
     sdat = load_sdat_folder(Path("C:\\volt-trace\\XML-Files\\SDAT-Files"))
