@@ -26,56 +26,56 @@ from datetime import datetime
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
-from sdat import Messwert, load_sdat_folder
+from sdat import MeasuredValue, load_sdat_folder
 
 # pyrefly: ignore [missing-import]
-from esl import Zaehlerstand, load_esl_folder
+from esl import EslMeterReading, load_esl_folder
 
-def sort_messwerte_by_time(messwerte: List[Messwert]) -> List[Messwert]:
-    messwerte.sort(key=lambda x: x.timestamp)
-    return messwerte
+def sort_measured_values_by_time(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
+    measured_values.sort(key=lambda value: value.timestamp)
+    return measured_values
 
 
-def remove_duplicates(messwerte: List[Messwert]) -> List[Messwert]:
-    unique_messwerte: List[Messwert] = []
+def remove_duplicates(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
+    unique_measured_values: List[MeasuredValue] = []
     seen_timestamps = set()
-    for messwert in messwerte:
-        if messwert.timestamp not in seen_timestamps:
-            unique_messwerte.append(messwert)
-            seen_timestamps.add(messwert.timestamp)
-    return unique_messwerte
+    for measured_value in measured_values:
+        if measured_value.timestamp not in seen_timestamps:
+            unique_measured_values.append(measured_value)
+            seen_timestamps.add(measured_value.timestamp)
+    return unique_measured_values
 
 def berechne_zaehlerstand(
-    messwerte: List[Messwert],  # sortierte, duplikatfreie Liste aus sdat.py
+    measured_values: List[MeasuredValue],  # sortierte, duplikatfreie Liste aus sdat.py
     start_value: float,  # absoluter Zählerstand aus dem ESL-File
     start_time: datetime,  # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
-) -> List[Zaehlerstand]:
+) -> List[EslMeterReading]:
 
-    messwerte = [mw for mw in messwerte if mw.timestamp >= start_time]
-    messwerte = sort_messwerte_by_time(messwerte)
-    messwerte = remove_duplicates(messwerte)
+    measured_values = [mv for mv in measured_values if mv.timestamp >= start_time]
+    measured_values = sort_measured_values_by_time(measured_values)
+    measured_values = remove_duplicates(measured_values)
     running_total = start_value
-    results: List[Zaehlerstand] = []
+    results: List[EslMeterReading] = []
 
-    for mw in messwerte:
-        running_total += mw.volume
-        results.append(Zaehlerstand(mw.timestamp, running_total))
+    for mv in measured_values:
+        running_total += mv.volume
+        results.append(EslMeterReading(mv.timestamp, running_total))
     return results
 
 
 def calculate_all_meter_readings(
-    sdat_daten: Dict[str, List[Messwert]],
-    esl_daten: Dict[str, List[Zaehlerstand]],
-) -> Dict[str, List[Zaehlerstand]]:
-    ergebnis: Dict[str, List[Zaehlerstand]] = {}
-    for sensor_id, messwerte in sdat_daten.items():
+    sdat_daten: Dict[str, List[MeasuredValue]],
+    esl_daten: Dict[str, List[EslMeterReading]],
+) -> Dict[str, List[EslMeterReading]]:
+    ergebnis: Dict[str, List[EslMeterReading]] = {}
+    for sensor_id, measured_values in sdat_daten.items():
         esl_werte = esl_daten.get(sensor_id, [])
         if not esl_werte:
             continue
 
         anker = min(esl_werte, key=lambda z: z.start_time)
         ergebnis[sensor_id] = berechne_zaehlerstand(
-            messwerte,
+            measured_values,
             start_value=anker.start_value,
             start_time=anker.start_time,
         )
@@ -84,8 +84,8 @@ def calculate_all_meter_readings(
 
 
 if __name__ == "__main__":
-    sdat = load_sdat_folder(Path("C:\\Users\\andri\\Downloads\\XML-Files\\SDAT-Files"))
-    esl = load_esl_folder(Path("C:\\Users\\andri\\Downloads\\XML-Files\\ESL-Files"))
+    sdat = load_sdat_folder(Path("C:\\volt-trace\\XML-Files\\SDAT-Files"))
+    esl = load_esl_folder(Path("C:\\volt-trace\\XML-Files\\ESL-Files"))
 
     zaehlerstaende = calculate_all_meter_readings(sdat, esl)
     for sensor_id, werte in zaehlerstaende.items():

@@ -98,3 +98,5 @@ Desktop.ini
 # Temporary & Log files
 *.log
 *.tmp
+
+XML-Files/*

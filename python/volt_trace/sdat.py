@@ -97,8 +97,8 @@ def parse_sdat_file(file_path: Path) -> Dict[str, List[MeasuredValue]]:
     messwerte = _parse_observations(root, start, resolution)
     return {sensor_id: messwerte}
 
-def load_sdat_folder(folder_path: Path) -> Dict[str, List[Messwert]]:
-    alle_messwerte: Dict[str, List[Messwert]] = {}
+def load_sdat_folder(folder_path: Path) -> Dict[str, List[MeasuredValue]]:
+    alle_messwerte: Dict[str, List[MeasuredValue]] = {}
     for xml_file in folder_path.glob("*.xml"):
         for sensor_id, messwerte in parse_sdat_file(xml_file).items():
             alle_messwerte.setdefault(sensor_id, []).extend(messwerte)

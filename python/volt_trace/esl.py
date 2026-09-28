@@ -103,8 +103,8 @@ def parse_esl_file(file_path: Path) -> Dict[str, List[EslMeterReading]]:
 
     return {sensor_id: values for sensor_id, values in result.items() if values}
 
-def load_esl_folder(folder_path: Path) -> Dict[str, List[Zaehlerstand]]:
-    alle_zaehlerstaende: Dict[str, List[Zaehlerstand]] = {}
+def load_esl_folder(folder_path: Path) -> Dict[str, List[EslMeterReading]]:
+    alle_zaehlerstaende: Dict[str, List[EslMeterReading]] = {}
     for xml_file in folder_path.glob("*.xml"):
         for sensor_id, zaehlerstaende in parse_esl_file(xml_file).items():
             alle_zaehlerstaende.setdefault(sensor_id, []).extend(zaehlerstaende)
