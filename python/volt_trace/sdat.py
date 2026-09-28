@@ -32,7 +32,7 @@ ALLOWED_SENSOR_IDS = {"ID735", "ID742"}
 
 
 @dataclass
-class Messwert:
+class MeasuredValue:
     timestamp: datetime
     sequence: int
     volume: float
@@ -41,7 +41,7 @@ class Messwert:
 def _get_text(element, xpath) -> str | None:
     node = element.find(xpath, NS)
     if node is None or node.text is None:
-        raise ValueError(f"Tag nicht gefunden: {xpath}")
+        raise ValueError(f"Tag not found: {xpath}")
     return node.text
 
 
@@ -52,21 +52,34 @@ def _extract_sensor_id(document_id) -> str:
 def _parse_timestamp(value) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
+def sort_measured_values_by_time(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
+    measured_values.sort(key=lambda value: value.timestamp)
+    return measured_values
 
-def _parse_observations(root, start, resolution) -> List[Messwert]:
-    messwerte = []
+def remove_duplicates(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
+    unique_measured_values: List[MeasuredValue] = []
+    seen_timestamps = set()
+    for measured_value in measured_values:
+        if measured_value.timestamp not in seen_timestamps:
+            unique_measured_values.append(measured_value)
+            seen_timestamps.add(measured_value.timestamp)
+    return unique_measured_values
+
+def _parse_observations(root, start, resolution) -> List[MeasuredValue]:
+    measured_values = []
     observations = root.findall(".//rsm:Observation", NS)
     for obs in observations:
         sequence = int(_get_text(obs, ".//rsm:Position/rsm:Sequence"))
         volume = float(_get_text(obs, ".//rsm:Volume"))
         timestamp = start + timedelta(minutes=(sequence - 1) * resolution)
-        messwerte.append(Messwert(timestamp, sequence, volume))
+        measured_values.append(MeasuredValue(timestamp, sequence, volume))
+        
+    measured_values = sort_measured_values_by_time(measured_values)
+    measured_values = remove_duplicates(measured_values)
+    return measured_values
 
-  
-    return messwerte
 
-
-def parse_sdat_file(file_path: Path) -> Dict[str, List[Messwert]]:
+def parse_sdat_file(file_path: Path) -> Dict[str, List[MeasuredValue]]:
     """Liest ein sdat-File ein. Gibt {sensor_id: [Messwerte]} zurück,
     oder ein leeres Dict, wenn der Sensor nicht in ALLOWED_SENSOR_IDS ist."""
     root = ET.parse(file_path).getroot()

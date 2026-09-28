@@ -23,15 +23,43 @@ from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-ZEITZONE_ESL = ZoneInfo("Europe/Zurich")
-OBIS_MAPPING = {
-    "ID742": ("1-1:1.8.1", "1-1:1.8.2"),
-    "ID735": ("1-1:2.8.1", "1-1:2.8.2"),
+ESL_TIMEZONE = ZoneInfo("Europe/Zurich")
+TARIFF_REGISTERS = ("1", "2")
+OBIS_GROUP_TO_SENSOR = {
+    "1-1:1.8": "ID742",
+    "1-1:2.8": "ID735",
 }
 
 
+def _obis_group(obis: str) -> str | None:
+    """OBIS-Basis ohne Tarifregister (.1 Hochtarif, .2 Niedertarif)."""
+    prefix, register = obis.rsplit(".", 1)
+    if register in TARIFF_REGISTERS:
+        return prefix
+    return None
+
+
+def _total_readings_by_obis_group(values: Dict[str, float]) -> Dict[str, float]:
+    """Summiert Hoch- und Niedertarif je OBIS-Gruppe, wenn beide Register vorhanden."""
+    by_group: Dict[str, Dict[str, float]] = {}
+    for obis, value in values.items():
+        group = _obis_group(obis)
+        if group is None:
+            continue
+        register = obis.rsplit(".", 1)[1]
+        by_group.setdefault(group, {})[register] = value
+
+    totals: Dict[str, float] = {}
+    for group, register_values in by_group.items():
+        if all(register in register_values for register in TARIFF_REGISTERS):
+            totals[group] = round(
+                register_values["1"] + register_values["2"], 4
+            )
+    return totals
+
+
 @dataclass
-class Zaehlerstand:
+class EslMeterReading:
     start_time: datetime   # Ablesezeitpunkt in UTC
     start_value: float     # absoluter Zählerstand in kWh (HT + NT)
 
@@ -39,13 +67,13 @@ class Zaehlerstand:
 def _get_attribute(element, name) -> str:
     value = element.get(name)
     if value is None:
-        raise ValueError(f"Attribut nicht gefunden: {name}")
+        raise ValueError(f"Attribute not found: {name}")
     return value
 
 
 def _parse_start_time(value) -> datetime:
-    lokal = datetime.fromisoformat(value).replace(tzinfo=ZEITZONE_ESL)
-    return lokal.astimezone(timezone.utc)
+    local_time = datetime.fromisoformat(value).replace(tzinfo=ESL_TIMEZONE)
+    return local_time.astimezone(timezone.utc)
 
 
 def _parse_value_rows(time_period) -> Dict[str, float]:
@@ -55,22 +83,25 @@ def _parse_value_rows(time_period) -> Dict[str, float]:
     }
 
 
-def parse_esl_file(file_path: Path) -> Dict[str, List[Zaehlerstand]]:
+def parse_esl_file(file_path: Path) -> Dict[str, List[EslMeterReading]]:
     """Liest ein ESL-File ein. Gibt {sensor_id: [Zaehlerstaende]} zurück.
     Ein ESL-File enthält beide Sensoren, deshalb kommen bis zu zwei Einträge zurück."""
     root = ET.parse(file_path).getroot()
-    result: Dict[str, List[Zaehlerstand]] = {sensor_id: [] for sensor_id in OBIS_MAPPING}
+    result: Dict[str, List[EslMeterReading]] = {
+        sensor_id: [] for sensor_id in OBIS_GROUP_TO_SENSOR.values()
+    }
 
     for time_period in root.iter("TimePeriod"):
         start_time = _parse_start_time(_get_attribute(time_period, "end"))
-        werte = _parse_value_rows(time_period)
+        values = _parse_value_rows(time_period)
+        totals = _total_readings_by_obis_group(values)
 
-        for sensor_id, (hochtarif, niedertarif) in OBIS_MAPPING.items():
-            if hochtarif in werte and niedertarif in werte:
-                start_value = round(werte[hochtarif] + werte[niedertarif], 4)
-                result[sensor_id].append(Zaehlerstand(start_time, start_value))
+        for group, start_value in totals.items():
+            sensor_id = OBIS_GROUP_TO_SENSOR.get(group)
+            if sensor_id is not None:
+                result[sensor_id].append(EslMeterReading(start_time, start_value))
 
-    return {sensor_id: werte for sensor_id, werte in result.items() if werte}
+    return {sensor_id: values for sensor_id, values in result.items() if values}
 
 def load_esl_folder(folder_path: Path) -> Dict[str, List[Zaehlerstand]]:
     alle_zaehlerstaende: Dict[str, List[Zaehlerstand]] = {}
