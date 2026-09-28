@@ -38,10 +38,10 @@ if __name__ == "__main__":
     from analysis import calculate_all_meter_readings
 
     base = Path(__file__).parent                      # = volt_trace
-    xml_folder = base / "XML-Files (1)"
+    xml_folder = base / "C:\\volt-trace\\XML-Files"
 
-    sdat = load_sdat_folder(xml_folder / "SDAT-Files")
-    esl = load_esl_folder(xml_folder / "ESL-Files")
+    sdat = load_sdat_folder(Path("C:\\volt-trace\\XML-Files\\SDAT-Files"))
+    esl = load_esl_folder(Path("C:\\volt-trace\\XML-Files\\ESL-Files"))
     readings = calculate_all_meter_readings(sdat, esl)
 
     data = {
