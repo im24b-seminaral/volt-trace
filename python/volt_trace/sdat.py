@@ -52,6 +52,18 @@ def _extract_sensor_id(document_id) -> str:
 def _parse_timestamp(value) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
+def sort_messwerte_by_time(messwerte: List[Messwert]) -> List[Messwert]:
+    messwerte.sort(key=lambda x: x.timestamp)
+    return messwerte
+
+def remove_duplicates(messwerte: List[Messwert]) -> List[Messwert]:
+    unique_messwerte: List[Messwert] = []
+    seen_timestamps = set()
+    for messwert in messwerte:
+        if messwert.timestamp not in seen_timestamps:
+            unique_messwerte.append(messwert)
+            seen_timestamps.add(messwert.timestamp)
+    return unique_messwerte
 
 def _parse_observations(root, start, resolution) -> List[Messwert]:
     messwerte = []
@@ -61,6 +73,9 @@ def _parse_observations(root, start, resolution) -> List[Messwert]:
         volume = float(_get_text(obs, ".//rsm:Volume"))
         timestamp = start + timedelta(minutes=(sequence - 1) * resolution)
         messwerte.append(Messwert(timestamp, sequence, volume))
+        
+    messwerte = sort_messwerte_by_time(messwerte)
+    messwerte = remove_duplicates(messwerte)
     return messwerte
 
 

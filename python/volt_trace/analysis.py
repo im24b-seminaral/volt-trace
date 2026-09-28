@@ -20,3 +20,32 @@ Zweck und Aufgaben dieser Datei:
    - Vorbereitung aggregierter Daten für Verbrauchsdiagramme (Verbrauch pro Intervall / Tag).
    - Vorbereitung aggregierter Daten für Zählerstandsdiagramme (kontinuierlicher Verlauf).
 """
+
+from typing import List
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from volt_trace.sdat import Messwert
+
+@dataclass
+class Zaehlerstand:
+    timestamp: datetime
+    value: float
+
+
+def berechne_zaehlerstand(
+    messwerte: List[Messwert],   # sortierte, duplikatfreie Liste aus sdat.py
+    start_value: float,          # absoluter Zählerstand aus dem ESL-File
+    start_time: datetime,        # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
+    ) -> List[Zaehlerstand]:
+    
+    messwerte = [mw for mw in messwerte if mw.timestamp >= start_time]
+    
+    running_total = start_value
+    results: List[Zaehlerstand] = []
+
+    for mw in messwerte:
+        running_total += mw.volume
+        results.append(Zaehlerstand(mw.timestamp, running_total))
+    return results
+
