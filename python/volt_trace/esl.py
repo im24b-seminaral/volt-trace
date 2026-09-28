@@ -24,10 +24,38 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ZEITZONE_ESL = ZoneInfo("Europe/Zurich")
-OBIS_MAPPING = {
-    "ID742": ("1-1:1.8.1", "1-1:1.8.2"),
-    "ID735": ("1-1:2.8.1", "1-1:2.8.2"),
+TARIF_REGISTER = ("1", "2")
+OBIS_GRUPPE_TO_SENSOR = {
+    "1-1:1.8": "ID742",
+    "1-1:2.8": "ID735",
 }
+
+
+def _obis_gruppe(obis: str) -> str | None:
+    """OBIS-Basis ohne Tarifregister (.1 Hochtarif, .2 Niedertarif)."""
+    prefix, register = obis.rsplit(".", 1)
+    if register in TARIF_REGISTER:
+        return prefix
+    return None
+
+
+def _effektiver_zaehlerstand_pro_gruppe(werte: Dict[str, float]) -> Dict[str, float]:
+    """Summiert Hoch- und Niedertarif je OBIS-Gruppe, wenn beide Register vorhanden."""
+    nach_gruppe: Dict[str, Dict[str, float]] = {}
+    for obis, value in werte.items():
+        gruppe = _obis_gruppe(obis)
+        if gruppe is None:
+            continue
+        register = obis.rsplit(".", 1)[1]
+        nach_gruppe.setdefault(gruppe, {})[register] = value
+
+    summen: Dict[str, float] = {}
+    for gruppe, register_werte in nach_gruppe.items():
+        if all(r in register_werte for r in TARIF_REGISTER):
+            summen[gruppe] = round(
+                register_werte["1"] + register_werte["2"], 4
+            )
+    return summen
 
 
 @dataclass
@@ -59,15 +87,18 @@ def parse_esl_file(file_path: Path) -> Dict[str, List[Zaehlerstand]]:
     """Liest ein ESL-File ein. Gibt {sensor_id: [Zaehlerstaende]} zurück.
     Ein ESL-File enthält beide Sensoren, deshalb kommen bis zu zwei Einträge zurück."""
     root = ET.parse(file_path).getroot()
-    result: Dict[str, List[Zaehlerstand]] = {sensor_id: [] for sensor_id in OBIS_MAPPING}
+    result: Dict[str, List[Zaehlerstand]] = {
+        sensor_id: [] for sensor_id in OBIS_GRUPPE_TO_SENSOR.values()
+    }
 
     for time_period in root.iter("TimePeriod"):
         timestamp = _parse_timestamp(_get_attribute(time_period, "end"))
         werte = _parse_value_rows(time_period)
+        summen = _effektiver_zaehlerstand_pro_gruppe(werte)
 
-        for sensor_id, (hochtarif, niedertarif) in OBIS_MAPPING.items():
-            if hochtarif in werte and niedertarif in werte:
-                value = round(werte[hochtarif] + werte[niedertarif], 4)
+        for gruppe, value in summen.items():
+            sensor_id = OBIS_GRUPPE_TO_SENSOR.get(gruppe)
+            if sensor_id is not None:
                 result[sensor_id].append(Zaehlerstand(timestamp, value))
 
     return {sensor_id: werte for sensor_id, werte in result.items() if werte}
