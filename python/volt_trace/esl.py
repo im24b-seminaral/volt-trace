@@ -82,6 +82,14 @@ def _parse_value_rows(time_period) -> Dict[str, float]:
         for row in time_period.iter("ValueRow")
     }
 
+def remove_esl_duplicates(esl_werte: List[EslMeterReading]) -> List[EslMeterReading]:
+    unique: List[EslMeterReading] = []
+    seen_timestamps = set()
+    for z in esl_werte:
+        if z.start_time not in seen_timestamps:
+            unique.append(z)
+            seen_timestamps.add(z.start_time)
+    return unique
 
 def parse_esl_file(file_path: Path) -> Dict[str, List[EslMeterReading]]:
     """Liest ein ESL-File ein. Gibt {sensor_id: [Zaehlerstaende]} zurück.
@@ -108,4 +116,5 @@ def load_esl_folder(folder_path: Path) -> Dict[str, List[EslMeterReading]]:
     for xml_file in folder_path.glob("*.xml"):
         for sensor_id, zaehlerstaende in parse_esl_file(xml_file).items():
             alle_zaehlerstaende.setdefault(sensor_id, []).extend(zaehlerstaende)
-    return alle_zaehlerstaende
+
+    return {sensor_id: remove_esl_duplicates(werte) for sensor_id, werte in alle_zaehlerstaende.items()}
