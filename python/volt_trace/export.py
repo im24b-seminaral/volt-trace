@@ -1,10 +1,10 @@
 """
-csv_export.py - Export meter readings as CSV.
+export.py - Exportiert Zählerstände als CSV-Dateien.
 
-Format (as required by the assignment):
-- one file per sensor, file name = sensor ID (e.g. ID742.csv)
-- columns: timestamp,value
-- timestamp = Unix time in seconds (UTC), value = absolute meter reading
+Format (gemäss Aufgabenstellung):
+- eine Datei pro Sensor, Dateiname = Sensor-ID (z. B. ID742.csv)
+- Spalten: timestamp,value
+- timestamp = Unix-Zeit in Sekunden (UTC), value = absoluter Zählerstand
 """
 
 import csv
@@ -12,11 +12,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple
 
-DataPoint = Tuple[datetime, float]   # (time, meter reading)
+DataPoint = Tuple[datetime, float]   # (Zeitpunkt, Zählerstand)
 
 
 def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Path]:
-    """Writes one CSV file per sensor. Returns the paths of the created files."""
+    """Schreibt eine CSV-Datei pro Sensor und gibt die Pfade der erstellten Dateien zurück."""
     target_folder = Path(target_folder)
     target_folder.mkdir(parents=True, exist_ok=True)
     created_files = []
