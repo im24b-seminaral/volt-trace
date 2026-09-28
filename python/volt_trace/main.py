@@ -8,9 +8,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-from volt_trace.analysis import Zaehlerstand, berechne_zaehlerstand
+from volt_trace.analysis import MeterReading, calculate_meter_readings
 from volt_trace.esl import Zaehlerstand as EslZaehlerstand, parse_esl_file
-from volt_trace.sdat import Messwert, parse_sdat_file
+from volt_trace.sdat import MeasuredValue, parse_sdat_file
 
 
 def _merge_esl_readings(
@@ -34,28 +34,28 @@ def _latest_esl_before(
     return max(candidates, key=lambda z: z.start_time)
 
 
-def run_pipeline(esl_dir: Path, sdat_dir: Path) -> Dict[str, List[Zaehlerstand]]:
+def run_pipeline(esl_dir: Path, sdat_dir: Path) -> Dict[str, List[MeterReading]]:
     esl_paths = sorted(esl_dir.glob("*.xml"))
     sdat_paths = sorted(sdat_dir.glob("*.xml"))
 
     esl_by_sensor = _merge_esl_readings(esl_paths)
-    results: Dict[str, List[Zaehlerstand]] = {}
+    results: Dict[str, List[MeterReading]] = {}
 
     for sdat_path in sdat_paths:
         parsed = parse_sdat_file(sdat_path)
         if not parsed:
             continue
-        sensor_id, messwerte = parsed
-        if not messwerte:
+        sensor_id, measuredvalues = parsed
+        if not measuredvalues:
             continue
 
         esl_readings = esl_by_sensor.get(sensor_id, [])
-        reference = _latest_esl_before(esl_readings, messwerte[0].timestamp)
+        reference = _latest_esl_before(esl_readings, measuredvalues[0].timestamp)
         if reference is None:
             continue
 
-        results[sensor_id] = berechne_zaehlerstand(
-            messwerte,
+        results[sensor_id] = calculate_meter_readings(
+            measuredvalues,
             reference.start_value,
             reference.start_time,
         )
@@ -69,13 +69,13 @@ def main() -> None:
         "--esl-dir",
         type=Path,
         required=True,
-        help="Verzeichnis mit ESL-XML-Dateien",
+        help="Directory with ESL-XML-Files",
     )
     parser.add_argument(
         "--sdat-dir",
         type=Path,
         required=True,
-        help="Verzeichnis mit SDAT-XML-Dateien",
+        help="Directory with SDAT-XML-Files",
     )
     args = parser.parse_args()
     run_pipeline(args.esl_dir, args.sdat_dir)
