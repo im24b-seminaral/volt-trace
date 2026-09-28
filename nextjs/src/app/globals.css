@@ -1,0 +1,26 @@
+* { box-sizing: border-box; }
+body { margin: 0; color: #222; background: #fff; font: 14px Arial, sans-serif; }
+button, input, select { font: inherit; }
+button { cursor: pointer; }
+main { max-width: 960px; margin: 40px auto; padding: 0 20px; }
+h1 { font-size: 24px; font-weight: 600; margin: 0 0 28px; }
+.toolbar { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+.file-button, .tabs button { border: 1px solid #bbb; border-radius: 4px; background: #fff; padding: 8px 12px; }
+.file-button { cursor: pointer; }
+.file-button input { display: none; }
+.hint { color: #666; font-size: 12px; }
+.controls { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 24px; }
+.controls label { display: grid; gap: 6px; color: #555; font-size: 12px; }
+.controls input, .controls select { min-width: 145px; height: 36px; padding: 6px 8px; border: 1px solid #bbb; border-radius: 4px; background: #fff; color: #222; }
+.controls label:first-child select { min-width: 180px; }
+.tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.tabs button.active { background: #222; border-color: #222; color: #fff; }
+.chart { height: 330px; border: 1px solid #ccc; border-radius: 4px; padding: 20px; display: flex; flex-direction: column; justify-content: center; }
+.chart p { text-align: center; color: #555; }
+.chart-label { color: #555; font-size: 12px; }
+.chart-label.bottom { text-align: center; margin-top: 12px; }
+.bars { height: 230px; border-bottom: 1px solid #aaa; display: flex; align-items: end; gap: 8px; padding: 0 8px; }
+.bar-item { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: end; align-items: center; min-width: 0; }
+.bar { width: min(32px, 75%); background: #555; }
+.bar-item span { height: 18px; padding-top: 4px; color: #666; font-size: 11px; }
+@media (max-width: 600px) { main { margin-top: 24px; } .controls label { flex: 1 1 45%; } .controls input, .controls select { width: 100%; min-width: 0; } .bar-item:nth-child(even) span { visibility: hidden; } }
