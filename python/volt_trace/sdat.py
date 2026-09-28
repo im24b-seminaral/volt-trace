@@ -20,3 +20,41 @@ Zweck und Aufgaben dieser Datei:
    - Bereinigung von Duplikaten (z. B. identische Zeitstempel).
    - Rückgabe strukturierter Messreihen zur Weiterverarbeitung in analysis.py.
 """
+import xml.etree.ElementTree as ET
+import pandas
+from typing import List, Dict
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+
+NS = {"rsm": "http://www.strom.ch"}
+
+@dataclass
+class Messwert:
+    timestamp: datetime
+    sequence: int
+    volume: float
+
+def _parse_observations(root, start, resolution) -> List[Messwert]:
+  messwerte = []
+  observations = root.findall(".//rsm:Observation", NS)
+  for obs in observations:
+    sequence = int(obs.find(".//rsm:Position/rsm:Sequence", NS).text)
+    volume = float(obs.find(".//rsm:Volume", NS).text)
+    timestamp = start + timedelta(minutes=(sequence - 1) * resolution)
+    messwerte.append(Messwert(timestamp, sequence, volume))
+  return messwerte
+
+def parse_sdat_file(file_path: Path) -> Dict[str, List[Messwert]]:
+  root = ET.parse(file_path).getroot()
+  document_id = root.find(".//rsm:InstanceDocument/rsm:DocumentID", NS).text
+  sensor_id = document_id.rsplit("_", 1)[-1]
+
+  start = root.find(".//rsm:Interval/rsm:StartDateTime", NS).text
+  start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+
+  resolution = int(root.find(".//rsm:Resolution/rsm:Resolution", NS).text)
+
+  messwerte = _parse_observations(root, start, resolution)
+  return {sensor_id: messwerte}
+
