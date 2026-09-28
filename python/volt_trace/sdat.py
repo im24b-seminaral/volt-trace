@@ -21,13 +21,13 @@ Zweck und Aufgaben dieser Datei:
    - Rückgabe strukturierter Messreihen zur Weiterverarbeitung in analysis.py.
 """
 import xml.etree.ElementTree as ET
-import pandas
 from typing import List, Dict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 
 NS = {"rsm": "http://www.strom.ch"}
+ALLOWED_SENSOR_IDS = {"ID735", "ID742"}
 
 @dataclass
 class Messwert:
@@ -35,26 +35,38 @@ class Messwert:
     sequence: int
     volume: float
 
+def _get_text(element, xpath):
+  node = element.find(xpath, NS)
+  return node.text if node is not None else None
+
+def _extract_sensor_id(document_id):
+  return document_id.rsplit("_", 1)[-1]
+
+def _parse_timestamp(value):
+  return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
 def _parse_observations(root, start, resolution) -> List[Messwert]:
   messwerte = []
   observations = root.findall(".//rsm:Observation", NS)
   for obs in observations:
-    sequence = int(obs.find(".//rsm:Position/rsm:Sequence", NS).text)
-    volume = float(obs.find(".//rsm:Volume", NS).text)
+    sequence = int(_get_text(obs, ".//rsm:Position/rsm:Sequence"))
+    volume = float(_get_text(obs, ".//rsm:Volume"))
     timestamp = start + timedelta(minutes=(sequence - 1) * resolution)
     messwerte.append(Messwert(timestamp, sequence, volume))
   return messwerte
 
 def parse_sdat_file(file_path: Path) -> Dict[str, List[Messwert]]:
   root = ET.parse(file_path).getroot()
-  document_id = root.find(".//rsm:InstanceDocument/rsm:DocumentID", NS).text
-  sensor_id = document_id.rsplit("_", 1)[-1]
+  document_id = _get_text(root, ".//rsm:InstanceDocument/rsm:DocumentID")
+  sensor_id = _extract_sensor_id(document_id)
 
-  start = root.find(".//rsm:Interval/rsm:StartDateTime", NS).text
-  start = datetime.fromisoformat(start.replace("Z", "+00:00"))
+  if sensor_id not in ALLOWED_SENSOR_IDS:
+    return {}
 
-  resolution = int(root.find(".//rsm:Resolution/rsm:Resolution", NS).text)
+  start = _get_text(root, ".//rsm:Interval/rsm:StartDateTime")
+  start = _parse_timestamp(start)
+
+  resolution = int(_get_text(root, ".//rsm:Resolution/rsm:Resolution"))
 
   messwerte = _parse_observations(root, start, resolution)
   return {sensor_id: messwerte}
-
