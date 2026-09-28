@@ -32,4 +32,25 @@ def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Pa
 
     return created_files
 
+if __name__ == "__main__":
+    from sdat import load_sdat_folder
+    from esl import load_esl_folder
+    from analysis import calculate_all_meter_readings
 
+    base = Path(__file__).parent                      # = volt_trace
+    xml_folder = base / "XML-Files (1)"
+
+    sdat = load_sdat_folder(xml_folder / "SDAT-Files")
+    esl = load_esl_folder(xml_folder / "ESL-Files")
+    readings = calculate_all_meter_readings(sdat, esl)
+
+    data = {
+        sensor_id: [(r.start_time, r.start_value) for r in values]
+        for sensor_id, values in readings.items()
+    }
+
+    for file in export_csv(data, base / "export"):
+        lines = file.read_text(encoding="utf-8").splitlines()
+        print(f"{file.name}: {len(lines) - 1} rows")
+        for line in lines[:3]:
+            print("  " + line)
