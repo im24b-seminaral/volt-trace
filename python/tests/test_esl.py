@@ -38,17 +38,17 @@ def test_effektiver_zaehlerstand_ohne_beide_register():
 def test_parse_esl_file_summiert_id742_und_id735():
     result = parse_esl_file(FIXTURES / "sample.esl.xml")
     assert len(result["ID742"]) == 1
-    assert result["ID742"][0].value == 300.75
-    assert result["ID735"][0].value == 16.0
+    assert result["ID742"][0].start_value == 300.75
+    assert result["ID735"][0].start_value == 16.0
 
 
 def test_parse_esl_file_konvertiert_end_nach_utc_winterzeit():
     result = parse_esl_file(FIXTURES / "sample.esl.xml")
-    ts = result["ID742"][0].timestamp
+    ts = result["ID742"][0].start_time
     assert ts == datetime(2024, 1, 14, 23, 0, tzinfo=timezone.utc)
 
 
 def test_parse_esl_file_fehlendes_tarifregister_laesst_sensor_aus():
     result = parse_esl_file(FIXTURES / "sample_incomplete_tariff.esl.xml")
     assert "ID742" not in result
-    assert result["ID735"][0].value == 16.0
+    assert result["ID735"][0].start_value == 16.0

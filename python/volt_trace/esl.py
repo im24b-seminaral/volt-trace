@@ -60,8 +60,8 @@ def _effektiver_zaehlerstand_pro_gruppe(werte: Dict[str, float]) -> Dict[str, fl
 
 @dataclass
 class Zaehlerstand:
-    timestamp: datetime
-    value: float
+    start_time: datetime   # Ablesezeitpunkt in UTC
+    start_value: float     # absoluter Zählerstand in kWh (HT + NT)
 
 
 def _get_attribute(element, name) -> str:
@@ -71,7 +71,7 @@ def _get_attribute(element, name) -> str:
     return value
 
 
-def _parse_timestamp(value) -> datetime:
+def _parse_start_time(value) -> datetime:
     lokal = datetime.fromisoformat(value).replace(tzinfo=ZEITZONE_ESL)
     return lokal.astimezone(timezone.utc)
 
@@ -92,14 +92,13 @@ def parse_esl_file(file_path: Path) -> Dict[str, List[Zaehlerstand]]:
     }
 
     for time_period in root.iter("TimePeriod"):
-        timestamp = _parse_timestamp(_get_attribute(time_period, "end"))
+        start_time = _parse_start_time(_get_attribute(time_period, "end"))
         werte = _parse_value_rows(time_period)
         summen = _effektiver_zaehlerstand_pro_gruppe(werte)
 
-        for gruppe, value in summen.items():
+        for gruppe, start_value in summen.items():
             sensor_id = OBIS_GRUPPE_TO_SENSOR.get(gruppe)
             if sensor_id is not None:
-                result[sensor_id].append(Zaehlerstand(timestamp, value))
+                result[sensor_id].append(Zaehlerstand(start_time, start_value))
 
     return {sensor_id: werte for sensor_id, werte in result.items() if werte}
-

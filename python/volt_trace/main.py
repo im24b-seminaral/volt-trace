@@ -9,29 +9,29 @@ from pathlib import Path
 from typing import Dict, List
 
 from volt_trace.analysis import Zaehlerstand, berechne_zaehlerstand
-from volt_trace.esl import parse_esl_file
+from volt_trace.esl import Zaehlerstand as EslZaehlerstand, parse_esl_file
 from volt_trace.sdat import Messwert, parse_sdat_file
 
 
 def _merge_esl_readings(
     esl_paths: List[Path],
-) -> Dict[str, List[Zaehlerstand]]:
-    merged: Dict[str, List[Zaehlerstand]] = defaultdict(list)
+) -> Dict[str, List[EslZaehlerstand]]:
+    merged: Dict[str, List[EslZaehlerstand]] = defaultdict(list)
     for path in esl_paths:
         for sensor_id, readings in parse_esl_file(path).items():
             merged[sensor_id].extend(readings)
     for sensor_id in merged:
-        merged[sensor_id].sort(key=lambda z: z.timestamp)
+        merged[sensor_id].sort(key=lambda z: z.start_time)
     return dict(merged)
 
 
 def _latest_esl_before(
-    readings: List[Zaehlerstand], before: datetime
-) -> Zaehlerstand | None:
-    candidates = [z for z in readings if z.timestamp <= before]
+    readings: List[EslZaehlerstand], before: datetime
+) -> EslZaehlerstand | None:
+    candidates = [z for z in readings if z.start_time <= before]
     if not candidates:
         return None
-    return max(candidates, key=lambda z: z.timestamp)
+    return max(candidates, key=lambda z: z.start_time)
 
 
 def run_pipeline(esl_dir: Path, sdat_dir: Path) -> Dict[str, List[Zaehlerstand]]:
@@ -56,8 +56,8 @@ def run_pipeline(esl_dir: Path, sdat_dir: Path) -> Dict[str, List[Zaehlerstand]]
 
         results[sensor_id] = berechne_zaehlerstand(
             messwerte,
-            reference.value,
-            reference.timestamp,
+            reference.start_value,
+            reference.start_time,
         )
 
     return results
