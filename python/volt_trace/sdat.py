@@ -20,6 +20,7 @@ Zweck und Aufgaben dieser Datei:
    - Bereinigung von Duplikaten (z. B. identische Zeitstempel).
    - Rückgabe strukturierter Messreihen zur Weiterverarbeitung in analysis.py.
 """
+
 import xml.etree.ElementTree as ET
 from typing import List, Dict
 from dataclasses import dataclass
@@ -35,14 +36,16 @@ class Messwert:
     sequence: int
     volume: float
 
-def _get_text(element, xpath):
+def _get_text(element, xpath) -> str | None:
   node = element.find(xpath, NS)
-  return node.text if node is not None else None
+  if node is None or node.text is None:
+      raise ValueError(f"Tag nicht gefunden: {xpath}")
+  return node.text
 
-def _extract_sensor_id(document_id):
+def _extract_sensor_id(document_id) -> str:
   return document_id.rsplit("_", 1)[-1]
 
-def _parse_timestamp(value):
+def _parse_timestamp(value) -> datetime:
   return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 def _parse_observations(root, start, resolution) -> List[Messwert]:
@@ -56,6 +59,8 @@ def _parse_observations(root, start, resolution) -> List[Messwert]:
   return messwerte
 
 def parse_sdat_file(file_path: Path) -> Dict[str, List[Messwert]]:
+  """Liest ein sdat-File ein. Gibt {sensor_id: [Messwerte]} zurück,
+  oder ein leeres Dict, wenn der Sensor nicht in ALLOWED_SENSOR_IDS ist."""
   root = ET.parse(file_path).getroot()
   document_id = _get_text(root, ".//rsm:InstanceDocument/rsm:DocumentID")
   sensor_id = _extract_sensor_id(document_id)
