@@ -25,10 +25,7 @@ from typing import List, Dict
 from datetime import datetime
 from pathlib import Path
 
-# pyrefly: ignore [missing-import]
 from volt_trace.sdat import MeasuredValue, load_sdat_folder
-
-# pyrefly: ignore [missing-import]
 from volt_trace.esl import EslMeterReading, load_esl_folder
 
 def sort_measured_values_by_time(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
