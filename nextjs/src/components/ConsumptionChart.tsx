@@ -1,22 +1,22 @@
-const sample = [32, 28, 31, 25, 27, 33, 35, 30, 27, 32, 37, 35, 31, 25];
+"use client";
 
-export default function ConsumptionChart() {
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
+import type { DataPoint } from "@/lib/python";
+
+const config = { value: { label: "Verbrauch (kWh)", color: "var(--chart-2)" } } satisfies ChartConfig;
+
+export default function ConsumptionChart({ data }: { data: DataPoint[] }) {
+  if (!data.length) return <p className="py-16 text-center text-muted-foreground">Keine Werte im Zeitraum.</p>;
   return (
-    <>
-      <div className="chart-label">Verbrauch (kWh)</div>
-      <div className="bars">
-        {sample.map((value, index) => (
-          <div className="bar-item" key={index}>
-            <div
-              className="bar"
-              style={{ height: `${(value / 40) * 100}%` }}
-              title={`${index + 1}. Juni: ${value} kWh`}
-            />
-            <span>{index + 1}</span>
-          </div>
-        ))}
-      </div>
-      <div className="chart-label bottom">Juni 2020 · Beispieldaten</div>
-    </>
+    <ChartContainer config={config} className="h-[320px] w-full">
+      <BarChart accessibilityLayer data={data}>
+        <CartesianGrid vertical={false} />
+        <XAxis dataKey="ts" tickFormatter={(ts: string) => ts.slice(5, 10)} tickLine={false} />
+        <YAxis width={54} tickLine={false} />
+        <ChartTooltip content={<ChartTooltipContent labelFormatter={(label) => String(label).slice(0, 16)} />} />
+        <Bar dataKey="value" fill="var(--color-value)" radius={2} />
+      </BarChart>
+    </ChartContainer>
   );
 }
