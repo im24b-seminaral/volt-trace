@@ -101,3 +101,6 @@ Desktop.ini
 *.tmp
 
 XML-Files/*
+
+# Generated CSV exports
+python/volt_trace/export/
