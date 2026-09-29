@@ -104,3 +104,5 @@ XML-Files/*
 
 # Generated CSV exports
 python/volt_trace/export/
+
+/nextjs/data/
