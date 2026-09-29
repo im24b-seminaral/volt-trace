@@ -37,11 +37,11 @@ if __name__ == "__main__":
     from esl import load_esl_folder
     from analysis import calculate_all_meter_readings
 
-    base = Path(__file__).parent                      # = volt_trace
-    xml_folder = base / "C:\\volt-trace\\XML-Files"
+    base = Path(__file__).parent
+    xml_folder = base / "XML-Files"
 
-    sdat = load_sdat_folder(Path("C:\\volt-trace\\XML-Files\\SDAT-Files"))
-    esl = load_esl_folder(Path("C:\\volt-trace\\XML-Files\\ESL-Files"))
+    sdat = load_sdat_folder(xml_folder / "SDAT-Files")
+    esl = load_esl_folder(xml_folder / "ESL-Files")
     readings = calculate_all_meter_readings(sdat, esl)
 
     data = {
@@ -52,5 +52,50 @@ if __name__ == "__main__":
     for file in export_csv(data, base / "export"):
         lines = file.read_text(encoding="utf-8").splitlines()
         print(f"{file.name}: {len(lines) - 1} rows")
+        for line in lines[:3]:
+            print("  " + line)
+
+import json
+
+DataPoint = Tuple[datetime, float] 
+
+def export_json(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Path]:
+    """Schreibt eine JSON-Datei pro Sensor und gibt die Pfade der erstellten Dateien zurück."""
+    target_folder = Path(target_folder)
+    target_folder.mkdir(parents=True, exist_ok=True)
+    created_files = []
+
+    for sensor_id, points in data.items():
+        file = target_folder / f"{sensor_id}.json"
+        with open(file, "w", encoding="utf-8") as f:
+            json_data = [
+                {"timestamp": int(time.timestamp()), "value": value}
+                for time, value in sorted(points)
+            ]
+            json.dump(json_data, f, indent=2)
+        created_files.append(file)
+
+    return created_files
+
+if __name__ == "__main__":
+    from sdat import load_sdat_folder
+    from esl import load_esl_folder
+    from analysis import calculate_all_meter_readings
+
+    base = Path(__file__).parent
+    xml_folder = base / "XML-Files"
+
+    sdat = load_sdat_folder(xml_folder / "SDAT-Files")
+    esl = load_esl_folder(xml_folder / "ESL-Files") 
+    readings = calculate_all_meter_readings(sdat, esl)
+
+    data = {
+        sensor_id: [(r.start_time, r.start_value) for r in values]
+        for sensor_id, values in readings.items()
+    }
+
+    for file in export_json(data, base / "export"):
+        lines = file.read_text(encoding="utf-8").splitlines()
+        print(f"{file.name}: {len(lines)} rows")
         for line in lines[:3]:
             print("  " + line)
