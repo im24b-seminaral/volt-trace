@@ -8,6 +8,7 @@ import { promisify } from "util";
 const run = promisify(execFile);
 const PYTHON_DIR = path.join(process.cwd(), "..", "python");
 const DATA_DIR = path.join(process.cwd(), "data");
+const PYTHON = process.platform === "win32" ? "python" : "python3";
 
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
@@ -23,7 +24,7 @@ export async function POST(request: NextRequest) {
     await writeFile(path.join(uploadDir, file.name), Buffer.from(bytes));
   }
 
-  const { stdout } = await run("python3", ["-m", "volt_trace.cli", "sort-files", uploadDir, datasetDir], {
+  const { stdout } = await run(PYTHON, ["-m", "volt_trace.cli", "sort-files", uploadDir, datasetDir], {
     cwd: PYTHON_DIR,
   });
   const result = JSON.parse(stdout);
