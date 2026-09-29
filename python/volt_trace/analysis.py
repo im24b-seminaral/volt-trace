@@ -26,10 +26,10 @@ from datetime import datetime
 from pathlib import Path
 
 # pyrefly: ignore [missing-import]
-from sdat import MeasuredValue, load_sdat_folder
+from volt_trace.sdat import MeasuredValue, load_sdat_folder
 
 # pyrefly: ignore [missing-import]
-from esl import EslMeterReading, load_esl_folder
+from volt_trace.esl import EslMeterReading, load_esl_folder
 
 def sort_measured_values_by_time(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
     measured_values.sort(key=lambda value: value.timestamp)
@@ -45,7 +45,7 @@ def remove_duplicates(measured_values: List[MeasuredValue]) -> List[MeasuredValu
             seen_timestamps.add(measured_value.timestamp)
     return unique_measured_values
 
-def berechne_zaehlerstand(
+def calculate_meter_readings(
     measured_values: List[MeasuredValue],  # sortierte, duplikatfreie Liste aus sdat.py
     start_value: float,  # absoluter Zählerstand aus dem ESL-File
     start_time: datetime,  # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
@@ -64,31 +64,31 @@ def berechne_zaehlerstand(
 
 
 def calculate_all_meter_readings(
-    sdat_daten: Dict[str, List[MeasuredValue]],
-    esl_daten: Dict[str, List[EslMeterReading]],
+    sdat_data: Dict[str, List[MeasuredValue]],
+    esl_data: Dict[str, List[EslMeterReading]],
 ) -> Dict[str, List[EslMeterReading]]:
-    ergebnis: Dict[str, List[EslMeterReading]] = {}
-    for sensor_id, measured_values in sdat_daten.items():
-        esl_werte = esl_daten.get(sensor_id, [])
-        if not esl_werte:
+    results: Dict[str, List[EslMeterReading]] = {}
+    for sensor_id, measured_values in sdat_data.items():
+        esl_readings = esl_data.get(sensor_id, [])
+        if not esl_readings:
             continue
 
-        anker = min(esl_werte, key=lambda z: z.start_time)
-        ergebnis[sensor_id] = berechne_zaehlerstand(
+        reference = min(esl_readings, key=lambda reading: reading.start_time)
+        results[sensor_id] = calculate_meter_readings(
             measured_values,
-            start_value=anker.start_value,
-            start_time=anker.start_time,
+            start_value=reference.start_value,
+            start_time=reference.start_time,
         )
 
-    return ergebnis
+    return results
     
 
 if __name__ == "__main__":
     sdat = load_sdat_folder(Path("C:\\volt-trace\\XML-Files\\SDAT-Files"))
     esl = load_esl_folder(Path("C:\\volt-trace\\XML-Files\\ESL-Files"))
 
-    zaehlerstaende = calculate_all_meter_readings(sdat, esl)
-    for sensor_id, werte in zaehlerstaende.items():
-        print(f"{sensor_id}: {len(werte)} Werte")
-        print(f"  erster: {werte[0]}")
-        print(f"  letzter: {werte[-1]}")
+    meter_readings = calculate_all_meter_readings(sdat, esl)
+    for sensor_id, readings in meter_readings.items():
+        print(f"{sensor_id}: {len(readings)} Werte")
+        print(f"  erster: {readings[0]}")
+        print(f"  letzter: {readings[-1]}")
