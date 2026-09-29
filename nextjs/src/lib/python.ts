@@ -37,3 +37,37 @@ export const apiContract = {
   series: "GET /datasets/{datasetId}/series?… → SensorSeries[]",
   csv: "GET /datasets/{datasetId}/sensors/{sensorId}/export.csv → text/csv",
 } as const;
+
+const PYTHON_API_URL = process.env.PYTHON_API_URL ?? "http://localhost:3000";
+
+export async function uploadDataset(files: File[]): Promise<UploadResult> {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file));
+
+  const res = await fetch(`${PYTHON_API_URL}/datasets`, { method: "POST", body: formData });
+  if (!res.ok) throw new Error(`Upload fehlgeschlagen: ${res.status}`);
+  return res.json();
+}
+
+export async function getSensors(datasetId: string): Promise<Sensor[]> {
+  const res = await fetch(`${PYTHON_API_URL}/datasets/${datasetId}/sensors`);
+  if (!res.ok) throw new Error(`Sensors laden fehlgeschlagen: ${res.status}`);
+  return res.json();
+}
+
+export async function getSeries(query: SeriesQuery): Promise<SensorSeries[]> {
+  const params = new URLSearchParams({
+    sensorId: query.sensorId,
+    kind: query.kind,
+    resolution: query.resolution,
+    from: query.from,
+    to: query.to,
+  });
+  const res = await fetch(`${PYTHON_API_URL}/datasets/${query.datasetId}/series?${params}`);
+  if (!res.ok) throw new Error(`Series laden fehlgeschlagen: ${res.status}`);
+  return res.json();
+}
+
+export function getExportCsvUrl(datasetId: string, sensorId: string): string {
+  return `${PYTHON_API_URL}/datasets/${datasetId}/sensors/${sensorId}/export.csv`;
+}
