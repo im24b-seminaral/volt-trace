@@ -11,6 +11,9 @@ from volt_trace.quantities import KWH_DECIMALS
 
 DECIMALS = KWH_DECIMALS
 SENSOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
+KIND_CONSUMPTION = "verbrauch"      # FA-10a
+KIND_METER = "zaehlerstand"         # FA-10b
+KINDS = (KIND_CONSUMPTION, KIND_METER)
 
 
 @dataclass
@@ -55,6 +58,22 @@ def _sort_points(points: List[DataPoint]) -> List[DataPoint]:
     return sorted(points, key=lambda p: p.time)
 
 
+def consumption_points(sdat_data: dict) -> Dict[str, List[DataPoint]]:
+    return {sensor_id: [DataPoint(m.timestamp, m.volume) for m in values]
+            for sensor_id, values in sdat_data.items()}
+
+
+def meter_points(esl_data: dict) -> Dict[str, List[DataPoint]]:
+    return {sensor_id: [DataPoint(r.start_time, r.start_value) for r in readings]
+            for sensor_id, readings in esl_data.items()}
+
+
+def csv_filename(sensor_id: str, kind: str) -> str:
+    if kind not in KINDS:
+        raise ValueError(f"Unbekannte Exportart: {kind!r}")
+    return f"{_check_sensor_id(sensor_id)}_{kind}.csv"
+
+
 def to_csv_string(points: List[DataPoint]) -> str:
     """Gibt die Zählerstände eines Sensors als CSV-Text zurück (timestamp,value)."""
     buffer = io.StringIO(newline="")
@@ -75,14 +94,14 @@ def to_json_string(data: Dict[str, List[DataPoint]]) -> str:
     return json.dumps(to_json_payload(data), indent=2)
 
 
-def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Path]:
+def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path, kind: str) -> List[Path]:
     """Schreibt eine CSV-Datei pro Sensor und gibt die Pfade der erstellten Dateien zurück."""
     target_folder = Path(target_folder)
     target_folder.mkdir(parents=True, exist_ok=True)
     created_files = []
 
     for sensor_id, points in data.items():
-        file = target_folder / f"{_check_sensor_id(sensor_id)}.csv"
+        file = target_folder / csv_filename(sensor_id, kind)
         with open(file, "w", newline="", encoding="utf-8") as f:
             f.write(to_csv_string(points))
         created_files.append(file)

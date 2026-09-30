@@ -1,6 +1,5 @@
 import sys
 import json
-import csv
 import shutil
 import hashlib
 import pickle
@@ -13,6 +12,8 @@ from zoneinfo import ZoneInfo
 from volt_trace.quantities import round_kwh
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
+from volt_trace.export import (KIND_CONSUMPTION, KIND_METER, KINDS, consumption_points,
+                               meter_points, to_csv_string)
 
 NS_SDAT = "{http://www.strom.ch}"
 LOCAL_TZ = ZoneInfo("Europe/Zurich")
@@ -174,12 +175,17 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
     }]))
 
 
-def cmd_export(dataset_dir: str, sensor_id: str):
-    _sdat_data, esl_data, _skipped = _load(dataset_dir)
-    writer = csv.writer(sys.stdout)
-    writer.writerow(["timestamp", "value"])
-    for r in esl_data.get(sensor_id, []):   # bereits sortiert (load_esl_folder)
-        writer.writerow([int(r.start_time.timestamp()), r.start_value])
+def cmd_export(dataset_dir: str, sensor_id: str, kind: str):
+    if kind not in KINDS:
+        print(f"Unbekannte Exportart: {kind}", file=sys.stderr)
+        sys.exit(2)
+    sdat_data, esl_data, _skipped = _load(dataset_dir)
+    points = (consumption_points(sdat_data) if kind == KIND_CONSUMPTION
+              else meter_points(esl_data)).get(sensor_id)
+    if not points:
+        print(f"Für {sensor_id} liegen keine Daten für den Export '{kind}' vor.", file=sys.stderr)
+        sys.exit(1)
+    sys.stdout.buffer.write(to_csv_string(points).encode("utf-8"))
 
 
 if __name__ == "__main__":

@@ -85,8 +85,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption><NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
         </NativeSelect></div>
       </div>
-      <div className="flex gap-2"><Button disabled={!dataset}>Anzeigen</Button>
-        {sensor?.hasMeterReadings && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}`}>CSV exportieren</a></Button>}
+      <div className="flex flex-wrap items-center gap-2"><Button disabled={!dataset}>Anzeigen</Button>
+        {sensor && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}?kind=verbrauch`}>Verbrauch (CSV)</a></Button>}
+        {sensor && (sensor.hasMeterReadings
+          ? <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}?kind=zaehlerstand`}>Zählerstände (CSV)</a></Button>
+          : <p className="text-sm text-muted-foreground">Für {sensorId} liegen keine ESL-Zählerstände vor.</p>)}
       </div>
     </ChartForm>
   </main>;
