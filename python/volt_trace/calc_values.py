@@ -18,7 +18,7 @@ from volt_trace.compare_esl_vs_sdat import compare_esl_sdat
 ROOT_DIR = Path(__file__).parent.parent.parent
 SDAT_PATH = ROOT_DIR / "XML-Files" / "SDAT-Files"
 ESL_PATH = ROOT_DIR / "XML-Files" / "ESL-Files"
-
+DOCUMENTED_SENSORS = ("ID742", "ID735")
 
 num_sdat_files = len(os.listdir(SDAT_PATH))
 num_esl_files = len(os.listdir(ESL_PATH))
@@ -42,6 +42,8 @@ def analyse_conflicts(sdat_path):
     for xml_file in sorted(sdat_path.glob("*.xml")):
         creation, values_per_sensor = parse_sdat_file(xml_file)
         for sensor_id, values in values_per_sensor.items():
+            if sensor_id not in DOCUMENTED_SENSORS:
+                continue
             for value in values:
                 per_timestamp[(sensor_id, value.timestamp)].append((creation, xml_file.name, value.volume))
 
@@ -51,7 +53,7 @@ def analyse_conflicts(sdat_path):
                          if round(min(entries)[2], 4) == 0.0)
     return len(conflicts), oldest_is_zero / len(conflicts) * 100
 
-measurements = sum(len(values) for values in sdat_data.values())
+measurements = sum(len(sdat_data[sensor_id]) for sensor_id in DOCUMENTED_SENSORS)
 conflicts, zero_share = analyse_conflicts(SDAT_PATH)
 
 
