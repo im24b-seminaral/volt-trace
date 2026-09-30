@@ -2,6 +2,9 @@ import sys
 import json
 import csv
 import shutil
+import hashlib
+import pickle
+import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
@@ -51,11 +54,39 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
 
 
 def _load(dataset_dir: str):
-    base = Path(dataset_dir)
+    base = Path(dataset_dir).resolve()
+    # Only server-generated caches are read; uploads are restricted to XML.
+    cache = base / ".processed-v1.cache"
+    sources = sorted([*base.glob("sdat/*.xml"), *base.glob("esl/*.xml"),
+                      *Path(__file__).parent.glob("*.py")])
+    fingerprint = hashlib.sha256()
+    for source in sources:
+        stat = source.stat()
+        fingerprint.update(f"{source}:{stat.st_size}:{stat.st_mtime_ns}".encode())
+    key = fingerprint.hexdigest()
+    try:
+        with cache.open("rb") as stream:
+            saved_key, data = pickle.load(stream)
+        if saved_key == key:
+            return data
+    except (OSError, EOFError, ValueError, TypeError, AttributeError, ImportError, pickle.UnpicklingError):
+        pass
+
     sdat_data = load_sdat_folder(base / "sdat")
+    sdat_data = {sensor: remove_duplicates(sort_measured_values_by_time(values))
+                 for sensor, values in sdat_data.items()}
     esl_data = load_esl_folder(base / "esl")
     meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
-    return sdat_data, esl_data, meter_readings
+    data = sdat_data, esl_data, meter_readings
+    # Atomic replacement also allows simultaneous requests to finish safely.
+    with tempfile.NamedTemporaryFile(dir=base, delete=False) as stream:
+        temporary = Path(stream.name)
+        pickle.dump((key, data), stream, protocol=pickle.HIGHEST_PROTOCOL)
+    try:
+        temporary.replace(cache)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return data
 
 
 def cmd_sensors(dataset_dir: str):
@@ -87,7 +118,7 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
     sdat_data, _esl_data, meter_readings = _load(dataset_dir)
 
     if kind == "consumption":
-        values = remove_duplicates(sort_measured_values_by_time(list(sdat_data.get(sensor_id, []))))
+        values = sdat_data.get(sensor_id, [])
         points = [(v.timestamp, v.volume) for v in values]
     else:
         points = [(r.start_time, r.start_value) for r in meter_readings.get(sensor_id, [])]
