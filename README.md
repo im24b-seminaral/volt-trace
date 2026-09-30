@@ -1,22 +1,27 @@
 # Volt Trace
 
-Run these commands from the repository root in PowerShell.
+## Prerequisites (Windows)
 
-**Setup**
+Install [Python 3.14](https://www.python.org/downloads/windows/) with **Add Python to PATH**, and [Node.js 24 LTS](https://nodejs.org/en/download) (includes npm). Reopen PowerShell afterwards.
 
-```powershell
-cd python
-python -m venv .venv
-.\.venv\Scripts\python -m pip install -r requirements.txt
-cd ..\nextjs
-npm install
-```
+## Install dependencies
 
-**Start (from `nextjs`)**
+Open PowerShell in the repository root (`volt-trace`, containing `python` and `nextjs`):
 
 ```powershell
-npm run dev
+python -m venv python/.venv
+.\python\.venv\Scripts\python -m pip install -r python/requirements.txt
+npm --prefix nextjs ci
 ```
 
-Open <http://localhost:3000>. Select the XML files or a folder in the app.
-Next.js runs the Python processing directly; no separate API server is needed.
+## Start
+
+From the same repository root:
+
+```powershell
+npm --prefix nextjs run dev
+```
+
+Open [localhost:3000](http://localhost:3000) and select XML files or a folder. Keep the terminal open; press **Ctrl+C** to stop.
+
+Next.js uses `python/.venv` automatically. No environment activation or separate Python server is needed.
