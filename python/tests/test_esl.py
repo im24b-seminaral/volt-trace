@@ -2,8 +2,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from volt_trace.esl import (
-    _effektiver_zaehlerstand_pro_gruppe,
-    _obis_gruppe,
+    _total_readings_by_obis_group,
+    _obis_group,
     parse_esl_file,
 )
 
@@ -11,9 +11,9 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def test_obis_gruppe_entfernt_tarifregister():
-    assert _obis_gruppe("1-1:1.8.1") == "1-1:1.8"
-    assert _obis_gruppe("1-1:2.8.2") == "1-1:2.8"
-    assert _obis_gruppe("1-1:1.8.0") is None
+    assert _obis_group("1-1:1.8.1") == "1-1:1.8"
+    assert _obis_group("1-1:2.8.2") == "1-1:2.8"
+    assert _obis_group("1-1:1.8.0") is None
 
 
 def test_effektiver_zaehlerstand_summiert_hoch_und_niedertarif():
@@ -23,14 +23,14 @@ def test_effektiver_zaehlerstand_summiert_hoch_und_niedertarif():
         "1-1:2.8.1": 10.1,
         "1-1:2.8.2": 5.9,
     }
-    summen = _effektiver_zaehlerstand_pro_gruppe(werte)
+    summen = _total_readings_by_obis_group(werte)
     assert summen["1-1:1.8"] == 300.75
     assert summen["1-1:2.8"] == 16.0
 
 
 def test_effektiver_zaehlerstand_ohne_beide_register():
     werte = {"1-1:1.8.1": 100.5, "1-1:2.8.1": 10.1, "1-1:2.8.2": 5.9}
-    summen = _effektiver_zaehlerstand_pro_gruppe(werte)
+    summen = _total_readings_by_obis_group(werte)
     assert "1-1:1.8" not in summen
     assert summen["1-1:2.8"] == 16.0
 
