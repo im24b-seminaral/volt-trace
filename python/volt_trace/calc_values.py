@@ -1,7 +1,7 @@
 """
-calc_values.py - Key figures for the project documentation.
+calc_values.py - Kennzahlen für die Projektdokumentation.
 
-Run from the "python" folder:
+Aus dem Ordner "python" ausführen:
     python -m volt_trace.calc_values
 """
 
@@ -32,11 +32,11 @@ sdat_data = load_sdat_folder(SDAT_PATH)   # ist bereits dedupliziert und sortier
 
 def analyse_conflicts(sdat_path):
     """
-    Timestamps delivered more than once with different values.
+    Zeitstempel, die mehrfach mit unterschiedlichen Werten geliefert wurden.
 
-    Returns (number of conflicts, share where the oldest file held 0.000).
-    load_sdat_folder() already removes the duplicates, so the files have to be
-    read again here to see all deliveries.
+    Gibt (Anzahl der Konflikte, Anteil mit 0.000 in der ältesten Datei) zurück.
+    load_sdat_folder() entfernt Duplikate bereits; daher werden die Dateien hier
+    erneut gelesen, um alle gelieferten Werte zu erfassen.
     """
     per_timestamp = defaultdict(list)
     for xml_file in sorted(sdat_path.glob("*.xml")):
@@ -60,13 +60,13 @@ conflicts, zero_share = analyse_conflicts(SDAT_PATH)
 
 
 def compare_with_esl(measured_values, meter_readings):
-    """Intervals between two ESL dates, without the unusable ones."""
+    """Intervalle zwischen zwei ESL-Stichtagen ohne die nicht verwendbaren Intervalle."""
     intervals = compare_esl_sdat(measured_values, meter_readings)
     last_measurement = max(value.timestamp for value in measured_values)
     return [i for i in intervals
             if i["esl_diff"] and i["sdat_summe"] and i["bis"] <= last_measurement]
 
-# Swiss thousands separator: 258232 -> 258'232
+# Schweizer Tausendertrennzeichen: 258232 -> 258'232
 sdat_files_text = f"{num_sdat_files:,}".replace(",", "'")
 measurements_text = f"{measurements:,}".replace(",", "'")
 conflicts_text = f"{conflicts:,}".replace(",", "'")
