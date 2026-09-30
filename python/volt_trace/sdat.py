@@ -42,6 +42,25 @@ class MeasuredValue:
     timestamp: datetime
     sequence: int
     volume: float
+    source: "SdatSource | None" = None
+
+
+@dataclass(frozen=True)
+class SdatSource:
+    file: str
+    document_id: str
+    creation: datetime
+    interval_start: datetime
+    interval_end: datetime | None
+    resolution_minutes: int
+    resolution_unit: str | None
+    document_status: str | None
+
+
+class SdatDataset(dict[str, List[MeasuredValue]]):
+    def __init__(self, values: Dict[str, List[MeasuredValue]], sources: List[SdatSource]):
+        super().__init__(values)
+        self.sources = sources
  
  
 def _get_text(element, xpath) -> str | None:
@@ -99,7 +118,7 @@ def _parse_observation(obs) -> Tuple[int, float]:
     return int(sequence_text), float(volume_text)
  
  
-def _parse_observations(root, start, resolution) -> List[MeasuredValue]:
+def _parse_observations(root, start, resolution, source: SdatSource | None = None) -> List[MeasuredValue]:
     measured_values = []
     step = timedelta(minutes=resolution)
     in_order = resolution > 0   # Sequence streng aufsteigend -> schon sortiert und ohne Duplikate
@@ -109,7 +128,7 @@ def _parse_observations(root, start, resolution) -> List[MeasuredValue]:
         if sequence <= previous_sequence:
             in_order = False
         previous_sequence = sequence
-        measured_values.append(MeasuredValue(start + step * (sequence - 1), sequence, volume))
+        measured_values.append(MeasuredValue(start + step * (sequence - 1), sequence, volume, source))
  
     if in_order:
         return measured_values
@@ -135,7 +154,7 @@ def _parse_resolution(root, start) -> int | None:
     duration = _parse_timestamp(end_text) - start
     return int(duration.total_seconds() // 60 // anzahl)
  
-def parse_sdat_file(file_path: Path) -> Tuple[datetime, Dict[str, List[MeasuredValue]]]:
+def parse_sdat_file(file_path: Path, source_path: str | None = None) -> Tuple[datetime, Dict[str, List[MeasuredValue]]]:
     """Liest ein sdat-File ein. Gibt (Creation-Zeitpunkt, {sensor_id: [Messwerte]})
     zurück. Alle Sensoren werden eingelesen (FA-03); das Dict ist leer, wenn dem
     File Pflichtangaben fehlen (NFA-06)."""
@@ -153,25 +172,42 @@ def parse_sdat_file(file_path: Path) -> Tuple[datetime, Dict[str, List[MeasuredV
     if resolution is None:
         return creation, {}
  
-    return creation, {sensor_id: _parse_observations(root, start, resolution)}
+    end_text = _find_text(root, ".//rsm:Interval/rsm:EndDateTime")
+    source = SdatSource(
+        source_path or file_path.name,
+        document_id,
+        creation,
+        start,
+        _parse_timestamp(end_text) if end_text else None,
+        resolution,
+        _find_text(root, ".//rsm:Resolution/rsm:Unit"),
+        _find_text(root, ".//rsm:InstanceDocument/rsm:Status"),
+    )
+    return creation, {sensor_id: _parse_observations(root, start, resolution, source)}
  
 def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None) -> Dict[str, List[MeasuredValue]]:
     eingelesen = []
-    for xml_file in sorted(folder_path.glob("*.xml")):
+    sources: List[SdatSource] = []
+    for xml_file in sorted(path for path in folder_path.rglob("*")
+                           if path.is_file() and path.suffix.lower() == ".xml"):
+        source_path = xml_file.relative_to(folder_path).as_posix()
         try:
-            creation, messwerte_pro_sensor = parse_sdat_file(xml_file)
+            creation, messwerte_pro_sensor = parse_sdat_file(xml_file, source_path)
         except (ET.ParseError, ValueError, OSError) as error:
             if skipped is not None:
                 reason = ("Kein gültiges XML" if isinstance(error, ET.ParseError)
                           else f"Fehlerhafte Daten: {error}")
-                skipped.append({"file": xml_file.name, "reason": reason, "skippedRecords": 0})
+                skipped.append({"file": source_path, "kind": "file", "reason": reason, "skippedRecords": 0})
             continue
-        if not messwerte_pro_sensor:
+        if not messwerte_pro_sensor or not any(messwerte_pro_sensor.values()):
             if skipped is not None:
-                skipped.append({"file": xml_file.name,
+                skipped.append({"file": source_path, "kind": "file",
                                 "reason": "Startzeit oder Messwerte fehlen", "skippedRecords": 0})
             continue
-        eingelesen.append((creation, xml_file.name, messwerte_pro_sensor))
+        source = next(iter(messwerte_pro_sensor.values()))[0].source
+        if source is not None:
+            sources.append(source)
+        eingelesen.append((creation, source_path, messwerte_pro_sensor))
     eingelesen.sort(key=lambda eintrag: (eintrag[0], eintrag[1]))
  
     pro_sensor: Dict[str, Dict[datetime, MeasuredValue]] = {}
@@ -181,7 +217,7 @@ def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None) -> Di
             for messwert in messwerte:
                 bereits_gelesen[messwert.timestamp] = messwert   # last wins
  
-    return {
+    return SdatDataset({
         sensor_id: sorted(messwerte.values(), key=lambda m: m.timestamp)
         for sensor_id, messwerte in pro_sensor.items()
-    }
+    }, sources)

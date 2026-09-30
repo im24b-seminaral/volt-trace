@@ -102,13 +102,14 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 
 ### SDAT laden (`load_sdat_folder`)
 
-- Alle `*.xml` in einem Ordner einlesen.
-- Pro Datei Sensor-ID extrahieren; aktuell werden nur **ID735** und **ID742** verarbeitet (`ALLOWED_SENSOR_IDS` in `sdat.py`).
+- XML-Dateien auch in Unterordnern einlesen. Beim Web-Upload werden ZIP-Archive sicher entpackt.
+- Pro Datei Sensor-ID aus `DocumentID` extrahieren; auch weitere Sensoren werden eingelesen.
 - Messwerte gleicher Sensoren aus mehreren Dateien werden zusammengeführt.
+- Dateiquelle, `Creation`, Intervall, Auflösung und Dokumentstatus bleiben im Datenmodell erhalten.
 
 ### ESL laden (`load_esl_folder`)
 
-- Alle ESL-XMLs einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln.
+- ESL-XMLs auch in Unterordnern einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln. Meter, OBIS-Werte und Status bleiben als Herkunftsdaten erhalten.
 - Doppelte Stichtags-Zeitstempel pro Sensor werden entfernt (`remove_esl_duplicates`).
 
 ### Zählerstand berechnen (`calculate_all_meter_readings`)
@@ -222,8 +223,8 @@ Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`
 
 ### Bedienung
 
-1. **XML-Dateien wählen** oder **Ordner wählen** (nur `.xml`).
-2. Unbekannte Dateien werden beim Sortieren übersprungen (Hinweis in der UI).
+1. **XML-/ZIP-Dateien wählen** oder **Ordner wählen** (inklusive Unterordnern).
+2. Der Importbericht zeigt gefundene, eingelesene und übersprungene Dateien sowie übersprungene Datensätze mit Gründen. Ungültige ZIPs und XMLs werden gemeldet; gültige Dateien werden weiter verarbeitet.
 3. **Sensor**, **Zeitraum** (Kalendertage in **Europe/Zurich**), **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
    - **Verbrauch** — SDAT-`Volume` (bei Tag-Ansicht Summe pro Kalendertag).
    - **Zählerstand** — kumulierte absolute Werte aus ESL-Anker + SDAT.

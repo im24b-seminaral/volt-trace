@@ -30,6 +30,6 @@ def test_cached_dataset_serves_different_views_and_rebuilds(tmp_path, monkeypatc
     cli._load(str(tmp_path))
     assert loader.call_count == 2
 
-    (tmp_path / ".processed-v1.cache").write_bytes(b"broken cache")
+    (tmp_path / ".processed-v2.cache").write_bytes(b"broken cache")
     cli._load(str(tmp_path))
     assert loader.call_count == 3

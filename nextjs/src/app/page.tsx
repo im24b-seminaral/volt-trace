@@ -1,4 +1,6 @@
 import FileUpload from "@/components/FileUpload";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
 import ChartForm from "@/components/ChartForm";
@@ -8,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { localDayBoundsToUtcIso } from "@/lib/datetime";
 import { datasetPath, runPython } from "@/lib/python";
-import type { Sensor, SensorSeries, DataPoint } from "@/lib/types";
+import type { Sensor, SensorSeries, DataPoint, ImportReport } from "@/lib/types";
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const query = await searchParams;
@@ -21,10 +23,16 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   let sensors: Sensor[] = [];
   let sensorId = get("sensor");
   let points: DataPoint[] = [];
+  let importReport: ImportReport | null = null;
   let error = "";
   if (dataset) {
     try {
       const directory = datasetPath(dataset);
+      try {
+        importReport = JSON.parse(await readFile(path.join(directory, "import-report.json"), "utf-8")) as ImportReport;
+      } catch {
+        importReport = null;
+      }
       sensors = JSON.parse(await runPython("sensors", directory));
       if (!sensors.some((sensor) => sensor.sensorId === sensorId)) sensorId = sensors[0]?.sensorId ?? "";
       if (from && to && from > to) error = "Das Enddatum muss nach dem Startdatum liegen.";
@@ -50,7 +58,20 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       <FileUpload />
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {Number(get("skipped")) > 0 && <p className="text-sm">{Number(get("skipped"))} Datei(en) übersprungen.</p>}
+    {importReport && <section className="space-y-2 rounded-lg border p-4" aria-label="Importbericht">
+      <h2 className="font-semibold">Importbericht</h2>
+      <p className="text-sm">Gefunden: {importReport.foundFiles} Dateien · Eingelesen: {importReport.processedFiles} · Übersprungen: {importReport.skippedFiles} Dateien und {importReport.skippedRecords} Datensätze</p>
+      {importReport.findings.map((finding) => <p key={finding} className="text-sm">{finding}</p>)}
+      {importReport.issues.length > 0 && <details className="text-sm">
+        <summary className="cursor-pointer">Meldungen und Gründe ({importReport.issues.length})</summary>
+        <ul className="mt-2 max-h-64 space-y-1 overflow-auto">
+          {importReport.issues.map((issue, index) => <li key={`${issue.file}-${index}`}>
+            {issue.file}{issue.meter ? ` · Meter ${issue.meter}` : ""}{issue.obis ? ` · OBIS ${issue.obis}` : ""}: {issue.reason}
+            {issue.skippedRecords > 0 ? ` (${issue.skippedRecords} Datensatz)` : ""}
+          </li>)}
+        </ul>
+      </details>}
+    </section>}
     <ChartForm chart={
       !dataset ? <p className="py-24 text-center text-muted-foreground">XML-Dateien oder Ordner wählen.</p>
         : error ? null
