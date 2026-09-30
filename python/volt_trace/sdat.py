@@ -124,12 +124,22 @@ def parse_sdat_file(file_path: Path) -> Tuple[datetime, Dict[str, List[MeasuredV
 
     return creation, {sensor_id: _parse_observations(root, start, resolution)}
 
-def load_sdat_folder(folder_path: Path) -> Dict[str, List[MeasuredValue]]:
-    """Liest alle Files eines Ordners, aufsteigend sortiert nach (Creation, Dateiname).
-    Bei gleichem Zeitstempel gewinnt der zuletzt gelesene Wert (FA-06)."""
+def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None) -> Dict[str, List[MeasuredValue]]:
     eingelesen = []
-    for xml_file in folder_path.glob("*.xml"):
-        creation, messwerte_pro_sensor = parse_sdat_file(xml_file)
+    for xml_file in sorted(folder_path.glob("*.xml")):
+        try:
+            creation, messwerte_pro_sensor = parse_sdat_file(xml_file)
+        except (ET.ParseError, ValueError, OSError) as error:
+            if skipped is not None:
+                reason = ("Kein gültiges XML" if isinstance(error, ET.ParseError)
+                          else f"Fehlerhafte Daten: {error}")
+                skipped.append({"file": xml_file.name, "reason": reason, "skippedRecords": 0})
+            continue
+        if not messwerte_pro_sensor:
+            if skipped is not None:
+                skipped.append({"file": xml_file.name,
+                                "reason": "Startzeit oder Messwerte fehlen", "skippedRecords": 0})
+            continue
         eingelesen.append((creation, xml_file.name, messwerte_pro_sensor))
     eingelesen.sort(key=lambda eintrag: (eintrag[0], eintrag[1]))
 
