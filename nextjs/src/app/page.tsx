@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
+import { localDayBoundsToUtcIso } from "@/lib/datetime";
 import { datasetPath, runPython } from "@/lib/python";
 import type { Sensor, SensorSeries, DataPoint } from "@/lib/types";
 
@@ -31,8 +32,10 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         error = "Für 15-Minuten-Werte bitte einen Zeitraum von höchstens 31 Tagen wählen.";
       }
       if (sensorId && !error) {
+        const fromUtc = from ? localDayBoundsToUtcIso(from).from : "";
+        const toUtc = to ? localDayBoundsToUtcIso(to).to : "";
         const series: SensorSeries[] = JSON.parse(await runPython("series", directory, sensorId, kind, resolution,
-          from ? `${from}T00:00:00Z` : "", to ? `${to}T23:59:59.999999Z` : ""));
+          fromUtc, toUtc));
         points = series[0]?.data ?? [];
       }
     } catch (cause) {
@@ -51,7 +54,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     <ChartForm chart={
       !dataset ? <p className="py-24 text-center text-muted-foreground">XML-Dateien oder Ordner wählen.</p>
         : error ? null
-        : kind === "consumption" ? <ConsumptionChart data={points} /> : <MeterReadingChart data={points} />
+        : kind === "consumption"
+          ? <ConsumptionChart data={points} resolution={resolution} />
+          : <MeterReadingChart data={points} resolution={resolution} />
     }>
       <input type="hidden" name="dataset" value={dataset} />
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -60,8 +65,14 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
             {sensors.length ? sensors.map((item) => <NativeSelectOption key={item.sensorId} value={item.sensorId}>{item.sensorId}</NativeSelectOption>) : <NativeSelectOption value="">–</NativeSelectOption>}
           </NativeSelect>
         </div>
-        <div className="space-y-1.5"><Label htmlFor="from">Von (UTC)</Label><Input id="from" name="from" type="date" defaultValue={from} disabled={!dataset} /></div>
-        <div className="space-y-1.5"><Label htmlFor="to">Bis (UTC)</Label><Input id="to" name="to" type="date" defaultValue={to} disabled={!dataset} /></div>
+        <div className="space-y-1.5">
+          <Label htmlFor="from" title="Kalendertag in Europe/Zurich">Von</Label>
+          <Input id="from" name="from" type="date" defaultValue={from} disabled={!dataset} />
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="to" title="Kalendertag in Europe/Zurich">Bis</Label>
+          <Input id="to" name="to" type="date" defaultValue={to} disabled={!dataset} />
+        </div>
         <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label><NativeSelect id="resolution" name="resolution" className="w-full" defaultValue={resolution} disabled={!dataset}>
           <NativeSelectOption value="day">Tag</NativeSelectOption><NativeSelectOption value="15min">15 Minuten</NativeSelectOption>
         </NativeSelect></div>

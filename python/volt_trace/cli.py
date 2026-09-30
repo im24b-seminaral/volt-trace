@@ -135,7 +135,7 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
         values = sdat_data.get(sensor_id, [])
         points = [(v.timestamp, v.volume) for v in values]
     else:
-        points = [(r.start_time, r.start_value) for r in meter_readings.get(sensor_id, [])]
+        points = [(r.timestamp, r.meter_value) for r in meter_readings.get(sensor_id, {}).values()]
 
     if from_str:
         from_dt = datetime.fromisoformat(from_str.replace("Z", "+00:00"))
@@ -154,11 +154,11 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
 
 def cmd_export(dataset_dir: str, sensor_id: str):
     _sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
-    readings = meter_readings.get(sensor_id, [])
+    series = meter_readings.get(sensor_id, {})
     writer = csv.writer(sys.stdout)
     writer.writerow(["timestamp", "value"])
-    for r in sorted(readings, key=lambda r: r.start_time):
-        writer.writerow([int(r.start_time.timestamp()), r.start_value])
+    for r in series.values():   # bereits sortiert (check_series)
+        writer.writerow([int(r.timestamp.timestamp()), r.meter_value])
 
 
 if __name__ == "__main__":

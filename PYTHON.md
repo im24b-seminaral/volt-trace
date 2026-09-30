@@ -215,6 +215,18 @@ classDiagram
         +float start_value
     }
 
+    class MeterReading {
+        <<analysis.py>>
+        +datetime timestamp
+        +float consumption
+        +float meter_value
+    }
+
+    class MeterSeries {
+        <<analysis.py>>
+        dict~datetime, MeterReading~
+    }
+
     class DataPoint {
         <<export.py>>
         +datetime time
@@ -238,19 +250,23 @@ classDiagram
 
     SensorExport "1" *-- "0..*" JsonEntry : enthält
     SensorExport ..> DataPoint : wird erzeugt aus
-    MeasuredValue ..> EslMeterReading : analysis.py rechnet um
-    EslMeterReading ..> DataPoint : wird umgewandelt für Export
+    MeterSeries "1" *-- "0..*" MeterReading : enthält, sortiert
+    MeasuredValue ..> MeterReading : liefert consumption
+    EslMeterReading ..> MeterReading : Anker für meter_value
+    MeterReading ..> DataPoint : wird umgewandelt für Export
 ```
 
 | Klasse | Datei | Bedeutung | Beispiel |
 |--------|-------|-----------|----------|
 | `MeasuredValue` | `sdat.py` | Ein 15-Minuten-Verbrauch aus SDAT | 2024-01-15 08:00 UTC, Sequenz 33, 0.25 kWh |
-| `EslMeterReading` | `esl.py` | Ein absoluter Zählerstand zu einem Zeitpunkt | 2024-01-14 23:00 UTC, 300.75 kWh |
+| `EslMeterReading` | `esl.py` | Ein abgelesener ESL-Zählerstand (nur Eingabedaten) | 2024-01-14 23:00 UTC, 300.75 kWh |
+| `MeterReading` | `analysis.py` | Messwert (NFA-02): Verbrauch im Intervall und berechneter Zählerstand zum selben Zeitpunkt | 2024-01-15 08:00 UTC, 0.25 kWh, 300.75 kWh |
+| `MeterSeries` | `analysis.py` | Zeitreihe eines Sensors: `dict[datetime, MeterReading]`, eindeutig, aufsteigend, UTC (geprüft von `check_series`) | – |
 | `DataPoint` | `export.py` | Ein Zählerstand, bereit für den Export (prüft Zeitzone) | wie oben |
 | `JsonEntry` | `export.py` | Ein Eintrag im JSON: `{"ts": "...", "value": ...}` | `ts="1705273200"` |
 | `SensorExport` | `export.py` | Alle Einträge eines Sensors im JSON | `sensorId="ID742"` |
 
-> 💡 **Achtung, doppelte Rolle:** `EslMeterReading` wird für **zwei Dinge** benutzt: für die echten ESL-Ablesungen *und* für die berechneten Zählerstände aus `analysis.py`. Die Feldnamen `start_time` / `start_value` passen eigentlich nur zum ersten Fall. Bei berechneten Werten heisst `start_time` einfach «Zeitpunkt» und `start_value` «Zählerstand».
+> 💡 **Eingabe vs. Ergebnis:** `EslMeterReading` steht nur für die echten ESL-Ablesungen. Die berechneten Zählerstände liefert `analysis.py` als `MeterReading` in einer `MeterSeries`. Ein `dict` statt pandas (NFA-02, Variante B): Schlüssel sind durch das `dict` eindeutig, die Einfügereihenfolge bleibt erhalten, und `check_series` belegt bei jeder Berechnung, dass die Schlüssel aufsteigend und in UTC sind.
 
 Alle Zeitstempel im Paket sind **mit Zeitzone UTC** gespeichert (`datetime` mit `tzinfo`). So gibt es keine Verwechslung zwischen Sommer- und Winterzeit.
 
@@ -575,13 +591,13 @@ owner = group_owner.setdefault(group, factory_no)
 
 `setdefault` heisst: «Wenn die Gruppe noch keinen Besitzer hat, trag `factory_no` ein. Gib in jedem Fall den (jetzigen) Besitzer zurück.»
 
-> ⚠️ Die Funktion sucht nach `<Meter>`-Elementen. Eine Datei **ohne** `<Meter>` (wie die Test-Fixtures) liefert ein leeres Ergebnis.
+> ⚠️ Die Funktion sucht nach `<Meter>`-Elementen. Eine Datei **ohne** `<Meter>` liefert ein leeres Ergebnis.
 
 #### `load_esl_folder(folder_path, skipped=None)`
 
 Liest alle `*.xml` im Ordner (alphabetisch), fängt Fehler pro Datei ab (wie `load_sdat_folder`), sammelt Hinweise in `skipped` und hängt alle Ablesungen pro Sensor zusammen. Am Schluss werden doppelte Zeitpunkte mit `remove_esl_duplicates` entfernt.
 
-> Die Liste pro Sensor ist **nicht sortiert**. `analysis.py` sucht den frühesten Wert darum mit `min(...)` statt einfach das erste Element zu nehmen.
+> Die Liste pro Sensor ist **nicht sortiert**. `analysis.py` sucht den Anker darum mit `min(...)` statt einfach das erste Element zu nehmen.
 
 ---
 
@@ -591,62 +607,61 @@ Hier wird aus «Kassenzetteln» (SDAT) und «Kontostand» (ESL) der **laufende Z
 
 ### `sort_measured_values_by_time` und `remove_duplicates`
 
-Kopien der gleichnamigen Funktionen aus `sdat.py` (siehe oben).
+Werden aus `sdat.py` importiert (keine eigenen Kopien mehr).
 
-### `calculate_meter_readings(measured_values, start_value, start_time) -> List[EslMeterReading]`
-
-Berechnet den Zählerstand für **einen** Sensor.
+### Datenmodell: `MeterReading` und `MeterSeries` (NFA-02)
 
 ```python
-measured_values = [mv for mv in measured_values if mv.timestamp >= start_time]  # 1. alles vor dem Anker weg
-measured_values = sort_measured_values_by_time(measured_values)                 # 2. sortieren
-measured_values = remove_duplicates(measured_values)                            # 3. Duplikate weg
-running_total = start_value                                                     # 4. beim ESL-Wert starten
-for mv in measured_values:
-    running_total += mv.volume                                                  # 5. aufsummieren
-    results.append(EslMeterReading(mv.timestamp, running_total))
+@dataclass
+class MeterReading:
+    timestamp: datetime   # UTC, Beginn des Intervalls
+    consumption: float    # Verbrauch im Intervall ab timestamp (kWh, aus sdat)
+    meter_value: float    # Zählerstand zum Zeitpunkt timestamp (kWh, berechnet)
+
+MeterSeries = Dict[datetime, MeterReading]
 ```
 
-Ein Rechenbeispiel mit ESL-Anker **1000.0 kWh** um 23:00 UTC:
+Pro Sensor gibt es eine `MeterSeries`. Das `dict` garantiert eindeutige Zeitstempel und behält die Einfügereihenfolge. `check_series(series)` prüft bei jeder Berechnung die Invariante und wirft sonst einen `ValueError`:
+
+- Schlüssel = `timestamp` des Messwerts
+- Zeitzone UTC
+- streng aufsteigend
+
+### `calculate_meter_readings(measured_values, start_value, start_time) -> MeterSeries`
+
+Berechnet den Zählerstand für **einen** Sensor, ausgehend vom ESL-Anker **vorwärts und rückwärts** (FA-07).
+
+**Konvention:** Ein Zählerstand gilt für den Zeitpunkt selbst, also *vor* dem Verbrauch des Intervalls, das dort beginnt: `Stand(t + 15 min) = Stand(t) + volume(t)`.
+
+```python
+measured_values = remove_duplicates(sorted(measured_values, key=lambda mv: mv.timestamp))
+before = [mv for mv in measured_values if mv.timestamp < start_time]
+after = [mv for mv in measured_values if mv.timestamp >= start_time]
+
+# rückwärts: erst abziehen, dann speichern
+# vorwärts: erst speichern, dann addieren
+```
+
+Rechenbeispiel mit ESL-Anker **1000.0 kWh** um 23:00 UTC:
 
 | SDAT-Zeitpunkt | `volume` | Rechnung | Zählerstand |
 |----------------|---------:|----------|------------:|
-| 22:45 | 0.20 | liegt **vor** dem Anker → verworfen | – |
-| 23:00 | 0.25 | 1000.00 + 0.25 | **1000.25** |
-| 23:15 | 0.30 | 1000.25 + 0.30 | **1000.55** |
-| 23:30 | 0.10 | 1000.55 + 0.10 | **1000.65** |
-| 23:45 | 0.00 | 1000.65 + 0.00 | **1000.65** |
+| 22:45 | 0.20 | 1000.00 − 0.20 | **999.80** |
+| 23:00 | 0.25 | Anker | **1000.00** |
+| 23:15 | 0.30 | 1000.00 + 0.25 | **1000.25** |
+| 23:30 | 0.10 | 1000.25 + 0.30 | **1000.55** |
 
-```mermaid
-flowchart LR
-    A["ESL-Anker<br/>1000.00 kWh"] -->|"+ 0.25"| B["23:00<br/>1000.25"]
-    B -->|"+ 0.30"| C["23:15<br/>1000.55"]
-    C -->|"+ 0.10"| D["23:30<br/>1000.65"]
-    D -->|"+ 0.00"| E["23:45<br/>1000.65"]
-```
+### `calculate_all_meter_readings(sdat_data, esl_data) -> {sensor_id: MeterSeries}`
 
-Beachte: Der Wert bei «23:00» enthält schon den Verbrauch **von 23:00 bis 23:15**. Das ist der Grund, warum laut Pflichtenheft der Zeitstempel eigentlich das **Intervallende** (23:15) sein sollte.
+Macht dasselbe für **alle** Sensoren mit sdat- und ESL-Daten. Als Anker dient der **erste ESL-Stichtag innerhalb des sdat-Zeitraums** (`_choose_reference`); gibt es keinen, der früheste Stichtag.
 
-### `calculate_all_meter_readings(sdat_data, esl_data) -> {sensor_id: [EslMeterReading, …]}`
+### `compare_with_esl(sdat_data, esl_data) -> List[EslComparison]`
 
-Macht dasselbe für **alle** Sensoren:
-
-```mermaid
-flowchart TD
-    A["Für jeden Sensor in sdat_data"] --> B{"Gibt es ESL-Werte<br/>für diesen Sensor?"}
-    B -->|nein| C["überspringen<br/>→ kein Zählerstand<br/>hasMeterReadings = false"]
-    B -->|ja| D["frühesten ESL-Wert suchen<br/>min nach start_time"]
-    D --> E["calculate_meter_readings<br/>ab diesem Anker"]
-    E --> F["Ergebnis speichern"]
-    C --> A
-    F --> A
-```
-
-Nur der **früheste** ESL-Wert wird als Startpunkt benutzt. Alle späteren ESL-Ablesungen werden für die Berechnung **nicht** verwendet – auch nicht zur Kontrolle. Wie gut die SDAT-Summe zu den späteren ESL-Werten passt, prüft nur das Hilfsskript `compare_esl_vs_sdat.py`.
+Soll-Ist-Vergleich an jedem ESL-Stichtag (FA-07 / NFA-04, Schranke `ESL_TOLERANCE_KWH = 0.001`). Jede Zeile hat den Status `Anker`, `OK`, `Abweichung` oder `nicht prüfbar` (Stichtag ausserhalb des sdat-Zeitraums). Der Test `tests/test_esl_vs_sdat.py` schreibt die Tabelle nach `python/export/esl_vs_sdat.csv`.
 
 ### Direkter Aufruf
 
-Der Block `if __name__ == "__main__":` liest fest eingetragene Windows-Pfade (`C:\volt-trace\XML-Files\…`) und gibt pro Sensor den ersten und letzten Wert aus. Er ist nur für schnelle Tests auf einem bestimmten Rechner gedacht.
+`python -m volt_trace.analysis` liest die Daten aus `XML-Files/` im Projekt und gibt pro Sensor den ersten und letzten Wert aus.
 
 ---
 
@@ -788,8 +803,8 @@ from pathlib import Path
 from volt_trace.export import DataPoint, export_csv, export_json
 
 data = {
-    sensor_id: [DataPoint(r.start_time, r.start_value) for r in readings]
-    for sensor_id, readings in meter_readings.items()   # aus calculate_all_meter_readings
+    sensor_id: [DataPoint(r.timestamp, r.meter_value) for r in series.values()]
+    for sensor_id, series in meter_readings.items()   # aus calculate_all_meter_readings
 }
 
 export_csv(data, Path("export"))                           # export/ID735.csv, export/ID742.csv
@@ -920,7 +935,7 @@ Liefert die Daten für ein Diagramm.
 flowchart TD
     A["_load"] --> B{"kind"}
     B -->|consumption| C["Punkte aus sdat_data<br/>(timestamp, volume)"]
-    B -->|meter-reading| D["Punkte aus meter_readings<br/>(start_time, start_value)"]
+    B -->|meter-reading| D["Punkte aus meter_readings<br/>(timestamp, meter_value)"]
     C --> E["nach von / bis filtern<br/>falls angegeben"]
     D --> E
     E --> F{"resolution"}
@@ -999,18 +1014,7 @@ sequenceDiagram
     Note over X: ❌ erwartet Dateipfad,<br/>bekommt Ordner
 ```
 
-> ⚠️ **`main.py` funktioniert zurzeit nicht.** Es übergibt Tupel statt `DataPoint`-Objekten und ruft `export_json` mit einem Ordner auf. Die Korrektur steht in [OFFENE_PUNKTE.md, Abschnitt 9](../OFFENE_PUNKTE.md#9-aufräumen):
->
-> ```python
-> from volt_trace.export import DataPoint, export_csv, export_json
->
-> data = {
->     sensor_id: [DataPoint(r.start_time, r.start_value) for r in values]
->     for sensor_id, values in readings.items()
-> }
-> export_csv(data, args.output_dir)
-> export_json(data, args.output_dir / "meter_readings.json")
-> ```
+`main.py` wandelt jede `MeterReading` in einen `DataPoint` um und schreibt `ID735.csv`, `ID742.csv` und `meter_readings.json` in den Ausgabeordner.
 
 ---
 
@@ -1119,7 +1123,7 @@ python -m venv python\.venv
 .\python\.venv\Scripts\python -m pip install -r python\requirements.txt
 ```
 
-Der eigentliche Code braucht **nur die Standardbibliothek** (`xml.etree`, `datetime`, `zoneinfo`, `csv`, `json`, `pickle`, `hashlib` …). `pandas`, `openpyxl`, `fastapi`, `uvicorn` und `python-multipart` stehen zwar in den Abhängigkeiten, werden aber nirgends importiert. Für die Tests braucht es `pytest`.
+Der eigentliche Code braucht **nur die Standardbibliothek** (`xml.etree`, `datetime`, `zoneinfo`, `csv`, `json`, `pickle`, `hashlib` …). Laufzeit-Abhängigkeiten gibt es keine. Für die Tests braucht es `pytest`.
 
 > Unter Windows fehlt manchmal die Zeitzonen-Datenbank. Falls `ZoneInfo("Europe/Zurich")` einen Fehler wirft: `pip install tzdata`.
 
@@ -1154,8 +1158,9 @@ sdat = load_sdat_folder(Path("daten/sdat"), skipped)
 esl = load_esl_folder(Path("daten/esl"), skipped)
 staende = calculate_all_meter_readings(sdat, esl)
 
-for sensor, werte in staende.items():
-    print(sensor, len(werte), "Werte, letzter Stand:", werte[-1].start_value)
+for sensor, series in staende.items():
+    letzter = list(series.values())[-1]
+    print(sensor, len(series), "Werte, letzter Stand:", letzter.meter_value)
 
 for problem in skipped:
     print("übersprungen:", problem)
@@ -1171,16 +1176,10 @@ Die vollständige Liste mit Prioritäten steht in [OFFENE_PUNKTE.md](../OFFENE_P
 |--------|--------------|-------|
 | `sdat._parse_observations` | Zeitstempel = **Beginn** des Intervalls | Laut FA-05 sollte es das Ende sein; alle Werte liegen 15 min zu früh |
 | `sdat._parse_resolution` | `<rsm:Unit>` wird nicht gelesen | Andere Einheiten als Minuten würden falsch gerechnet |
-| `analysis.calculate_all_meter_readings` | Nur der **früheste** ESL-Wert wird benutzt | Kein Neuansatz an späteren Ablesungen, keine Rückwärtsrechnung vor dem Anker |
 | `analysis`, alle Summen | Rechnen mit `float` | Kleine Rundungsfehler sammeln sich über viele Werte an (NFA-04) |
-| `sdat`, `analysis`, `compare_esl_vs_sdat` | `remove_duplicates` dreimal vorhanden | Änderung an der Regel muss an drei Orten gemacht werden |
-| `EslMeterReading` | für ESL-Werte **und** berechnete Werte benutzt | Feldnamen `start_time`/`start_value` sind bei berechneten Werten irreführend |
 | `cli.cmd_export` | baut CSV selbst | Keine Rundung auf 4 Stellen, `export.py` wird nicht benutzt |
-| `main.main` | übergibt Tupel und einen Ordner an `export.py` | Absturz |
-| `analysis.py`, `compare_esl_vs_sdat.py` | feste Pfade `C:\volt-trace\…` im `__main__`-Block | Läuft nur auf einem Rechner |
 | `calc_values.py` | Code auf Modulebene | Import startet sofort die ganze Berechnung |
 | `__init__.py` | Docstring verspricht zentrale Exporte | Es wird nur `__version__` definiert |
-| `tests/test_esl.py` | alte Funktionsnamen, Fixtures ohne `<Meter>` | Test-Sammlung bricht ab |
 
 ---
 

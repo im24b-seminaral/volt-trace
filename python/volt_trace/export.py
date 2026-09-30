@@ -88,6 +88,27 @@ def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Pa
     return created_files
 
 
+def export_esl_comparison_csv(comparisons: list, target_file: Path) -> Path:
+    """Schreibt den Soll-Ist-Vergleich an den ESL-Stichtagen (Liste von EslComparison)."""
+    target_file = Path(target_file)
+    target_file.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(target_file, "w", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f, lineterminator="\n")
+        writer.writerow(["stichtag", "sensor", "esl", "berechnet", "delta", "status"])
+        for c in comparisons:
+            writer.writerow([
+                c.time.isoformat(),
+                c.sensor_id,
+                f"{c.esl_value:.{DECIMALS}f}",
+                "" if c.calculated_value is None else f"{c.calculated_value:.{DECIMALS}f}",
+                "" if c.delta is None else f"{c.delta:.{DECIMALS}f}",
+                c.status,
+            ])
+
+    return target_file
+
+
 def export_json(data: Dict[str, List[DataPoint]], target_file: Path) -> Path:
     """Schreibt alle Zählerstände in eine JSON-Datei: [{sensorId, data: [{ts, value}]}]."""
     target_file = Path(target_file)
