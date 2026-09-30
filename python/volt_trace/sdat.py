@@ -22,7 +22,7 @@ Zweck und Aufgaben dieser Datei:
 """
 
 import xml.etree.ElementTree as ET
-from typing import List, Dict
+from typing import List, Dict, Tuple
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -51,6 +51,10 @@ def _extract_sensor_id(document_id) -> str:
 
 def _parse_timestamp(value) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+def _parse_creation(root) -> datetime:
+    """Zeitpunkt, an dem das File erstellt wurde (rsm:Creation)."""
+    return _parse_timestamp(_get_text(root, ".//rsm:InstanceDocument/rsm:Creation"))
 
 def sort_measured_values_by_time(measured_values: List[MeasuredValue]) -> List[MeasuredValue]:
     measured_values.sort(key=lambda value: value.timestamp)
@@ -83,11 +87,12 @@ def parse_sdat_file(file_path: Path) -> Dict[str, List[MeasuredValue]]:
     """Liest ein sdat-File ein. Gibt {sensor_id: [Messwerte]} zurück,
     oder ein leeres Dict, wenn der Sensor nicht in ALLOWED_SENSOR_IDS ist."""
     root = ET.parse(file_path).getroot()
+    creation = _parse_creation(root)
     document_id = _get_text(root, ".//rsm:InstanceDocument/rsm:DocumentID")
     sensor_id = _extract_sensor_id(document_id)
 
     if sensor_id not in ALLOWED_SENSOR_IDS:
-        return {}
+        return creation, {}
 
     start = _get_text(root, ".//rsm:Interval/rsm:StartDateTime")
     start = _parse_timestamp(start)
@@ -95,11 +100,25 @@ def parse_sdat_file(file_path: Path) -> Dict[str, List[MeasuredValue]]:
     resolution = int(_get_text(root, ".//rsm:Resolution/rsm:Resolution"))
 
     messwerte = _parse_observations(root, start, resolution)
-    return {sensor_id: messwerte}
+    return creation, {sensor_id: messwerte}
 
 def load_sdat_folder(folder_path: Path) -> Dict[str, List[MeasuredValue]]:
-    alle_messwerte: Dict[str, List[MeasuredValue]] = {}
+    """Liest alle Files eines Ordners, aufsteigend sortiert nach (Creation, Dateiname).
+    Bei gleichem Zeitstempel gewinnt der zuletzt gelesene Wert (FA-06)."""
+    eingelesen = []
     for xml_file in folder_path.glob("*.xml"):
-        for sensor_id, messwerte in parse_sdat_file(xml_file).items():
-            alle_messwerte.setdefault(sensor_id, []).extend(messwerte)
-    return alle_messwerte
+        creation, messwerte_pro_sensor = parse_sdat_file(xml_file)
+        eingelesen.append((creation, xml_file.name, messwerte_pro_sensor))
+    eingelesen.sort(key=lambda eintrag: (eintrag[0], eintrag[1]))
+
+    pro_sensor: Dict[str, Dict[datetime, MeasuredValue]] = {}
+    for _creation, _dateiname, messwerte_pro_sensor in eingelesen:
+        for sensor_id, messwerte in messwerte_pro_sensor.items():
+            bereits_gelesen = pro_sensor.setdefault(sensor_id, {})
+            for messwert in messwerte:
+                bereits_gelesen[messwert.timestamp] = messwert   # last wins
+
+    return {
+        sensor_id: sorted(messwerte.values(), key=lambda m: m.timestamp)
+        for sensor_id, messwerte in pro_sensor.items()
+    }
