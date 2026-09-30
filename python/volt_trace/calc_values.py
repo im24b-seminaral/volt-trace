@@ -10,10 +10,9 @@ import time
 from collections import defaultdict
 from pathlib import Path
 
-from volt_trace.analysis import remove_duplicates, sort_measured_values_by_time
 from volt_trace.sdat import load_sdat_folder, parse_sdat_file
 
-from volt_trace.esl import EslMeterReading, load_esl_folder
+from volt_trace.esl import load_esl_folder
 from volt_trace.compare_esl_vs_sdat import compare_esl_sdat
 
 ROOT_DIR = Path(__file__).parent.parent.parent
