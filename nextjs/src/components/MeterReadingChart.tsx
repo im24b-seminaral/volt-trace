@@ -2,7 +2,7 @@
 
 import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import type { DataPoint } from "@/lib/python";
+import type { DataPoint } from "@/lib/types";
 
 const config = { value: { label: "Zählerstand (kWh)", color: "var(--chart-3)" } } satisfies ChartConfig;
 

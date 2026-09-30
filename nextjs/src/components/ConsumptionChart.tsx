@@ -2,7 +2,7 @@
 
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart";
-import type { DataPoint } from "@/lib/python";
+import type { DataPoint } from "@/lib/types";
 
 const config = { value: { label: "Verbrauch (kWh)", color: "var(--chart-2)" } } satisfies ChartConfig;
 

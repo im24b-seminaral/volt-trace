@@ -1,22 +1,22 @@
 # Volt Trace
 
-Run these commands from the repository root in two PowerShell terminals.
+Run these commands from the repository root in PowerShell.
 
-**Terminal 1 — Python API**
+**Setup**
 
 ```powershell
 cd python
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements.txt
-.\.venv\Scripts\python -m uvicorn volt_trace.api:app --port 8000
+cd ..\nextjs
+npm install
 ```
 
-**Terminal 2 — Frontend**
+**Start (from `nextjs`)**
 
 ```powershell
-cd nextjs
-npm install
 npm run dev
 ```
 
 Open <http://localhost:3000>. Select the XML files or a folder in the app.
+Next.js runs the Python processing directly; no separate API server is needed.
