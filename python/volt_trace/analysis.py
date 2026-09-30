@@ -42,22 +42,47 @@ def remove_duplicates(measured_values: List[MeasuredValue]) -> List[MeasuredValu
             seen_timestamps.add(measured_value.timestamp)
     return unique_measured_values
 
+
 def calculate_meter_readings(
-    measured_values: List[MeasuredValue],  # sortierte, duplikatfreie Liste aus sdat.py
-    start_value: float,  # absoluter Zählerstand aus dem ESL-File
+    measured_values: List[MeasuredValue],  # Messwerte eines Sensors aus sdat.py
+    start_value: float,  # absoluter Zählerstand aus dem ESL-File (Anker)
     start_time: datetime,  # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
 ) -> List[EslMeterReading]:
+    # Konvention: Ein Zählerstand gilt für den Zeitpunkt selbst, also vor dem Verbrauch
+    # des Intervalls, das dort beginnt (sdat-Timestamp = Intervallbeginn).
+    # Stand(t + resolution) = Stand(t) + volume(t)
+    measured_values = remove_duplicates(sorted(measured_values, key=lambda mv: mv.timestamp))
+    before = [mv for mv in measured_values if mv.timestamp < start_time]
+    after = [mv for mv in measured_values if mv.timestamp >= start_time]
 
-    measured_values = [mv for mv in measured_values if mv.timestamp >= start_time]
-    measured_values = sort_measured_values_by_time(measured_values)
-    measured_values = remove_duplicates(measured_values)
+    # Rückwärts ab Anker: das Volumen des eigenen Intervalls abziehen, dann speichern.
+    backward: List[EslMeterReading] = []
     running_total = start_value
-    results: List[EslMeterReading] = []
+    for mv in reversed(before):
+        running_total -= mv.volume
+        backward.append(EslMeterReading(mv.timestamp, running_total))
+    backward.reverse()
 
-    for mv in measured_values:
+    # Vorwärts ab Anker: zuerst speichern, dann das Volumen des Intervalls addieren.
+    forward: List[EslMeterReading] = []
+    running_total = start_value
+    for mv in after:
+        forward.append(EslMeterReading(mv.timestamp, running_total))
         running_total += mv.volume
-        results.append(EslMeterReading(mv.timestamp, running_total))
-    return results
+
+    return backward + forward
+
+
+def _choose_reference(
+    esl_readings: List[EslMeterReading],
+    measured_values: List[MeasuredValue],
+) -> EslMeterReading:
+    # Anker = erster ESL-Stichtag innerhalb des sdat-Zeitraums (FA-07).
+    # Gibt es keinen, wird der früheste Stichtag genommen.
+    first = min(mv.timestamp for mv in measured_values)
+    last = max(mv.timestamp for mv in measured_values)
+    inside = [r for r in esl_readings if first <= r.start_time <= last]
+    return min(inside or esl_readings, key=lambda r: r.start_time)
 
 
 def calculate_all_meter_readings(
@@ -67,10 +92,10 @@ def calculate_all_meter_readings(
     results: Dict[str, List[EslMeterReading]] = {}
     for sensor_id, measured_values in sdat_data.items():
         esl_readings = esl_data.get(sensor_id, [])
-        if not esl_readings:
+        if not esl_readings or not measured_values:
             continue
 
-        reference = min(esl_readings, key=lambda reading: reading.start_time)
+        reference = _choose_reference(esl_readings, measured_values)
         results[sensor_id] = calculate_meter_readings(
             measured_values,
             start_value=reference.start_value,
