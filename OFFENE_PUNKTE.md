@@ -44,8 +44,8 @@ Stand: 30.09.2026, nach Commit `3e3d24f` plus Umbau NFA-02 (Variante B, noch nic
 
 ## 4. Sicherheit und Datenschutz
 
-- [ ] **NFA-12:** Hochgeladene Daten bleiben dauerhaft in `nextjs/data/` liegen, seit `789a619` zusätzlich als `.processed-v1.cache` pro Datensatz. Beides muss beim Ende der Sitzung (bzw. nach Ablauf) gelöscht werden.
-- [ ] **NFA-11 / NFA-12:** `next dev` ist aus dem Netzwerk erreichbar. Nur lokal binden: `next dev -H 127.0.0.1` (Script in `package.json` anpassen).
+- [x] **NFA-12:** Sitzungs-Cookie `vt_session`, Eigentümerschaft bei Anzeige/Export, Laufzeitdaten unter `VOLT_TRACE_DATA_DIR` (Default OS-Temp), `deleteDataset`/`purgeExpiredSessions`, Upload-Cleanup.
+- [x] **NFA-11 / NFA-12:** `next dev` / `next start` mit `-H 127.0.0.1`; Python bleibt Subprozess ohne Port.
 
 ## 5. Tests (Kap. 5.5)
 
