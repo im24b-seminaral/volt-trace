@@ -52,6 +52,11 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
         else:
             issues.append({"file": f.name, "reason": "unbekanntes Format", "skippedRecords": 0})
 
+    # Files lesen und Fehler sammeln (füllt gleichzeitig den Cache) - NFA-06.
+    # Meter-Skips (FA-04) sind erwartet und werden hier nicht als Fehler gemeldet.
+    skipped = _load(dataset_dir)[3]
+    issues += [entry for entry in skipped if "meter" not in entry]
+
     print(json.dumps({"processedFiles": processed, "skippedFiles": len(issues), "issues": issues}))
 
 
@@ -74,12 +79,13 @@ def _load(dataset_dir: str):
     except (OSError, EOFError, ValueError, TypeError, AttributeError, ImportError, pickle.UnpicklingError):
         pass
 
-    sdat_data = load_sdat_folder(base / "sdat")
+    skipped = []   # defekte Files und übersprungene Datensätze (NFA-06)
+    sdat_data = load_sdat_folder(base / "sdat", skipped)
     sdat_data = {sensor: remove_duplicates(sort_measured_values_by_time(values))
                  for sensor, values in sdat_data.items()}
-    esl_data = load_esl_folder(base / "esl")
+    esl_data = load_esl_folder(base / "esl", skipped)
     meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
-    data = sdat_data, esl_data, meter_readings
+    data = sdat_data, esl_data, meter_readings, skipped
     # Atomic replacement also allows simultaneous requests to finish safely.
     with tempfile.NamedTemporaryFile(dir=base, delete=False) as stream:
         temporary = Path(stream.name)
@@ -92,7 +98,7 @@ def _load(dataset_dir: str):
 
 
 def cmd_sensors(dataset_dir: str):
-    sdat_data, _esl_data, meter_readings = _load(dataset_dir)
+    sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
     result = [
         {
             "sensorId": sensor_id,
@@ -123,7 +129,7 @@ def _aggregate_by_day(points, kind):
 
 
 def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, from_str: str, to_str: str):
-    sdat_data, _esl_data, meter_readings = _load(dataset_dir)
+    sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
 
     if kind == "consumption":
         values = sdat_data.get(sensor_id, [])
@@ -147,7 +153,7 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
 
 
 def cmd_export(dataset_dir: str, sensor_id: str):
-    _sdat_data, _esl_data, meter_readings = _load(dataset_dir)
+    _sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
     readings = meter_readings.get(sensor_id, [])
     writer = csv.writer(sys.stdout)
     writer.writerow(["timestamp", "value"])
