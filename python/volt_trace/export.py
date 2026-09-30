@@ -1,4 +1,3 @@
-import argparse
 import csv
 import io
 import json
@@ -40,7 +39,7 @@ class SensorExport:
     @classmethod
     def from_points(cls, sensor_id: str, points: List[DataPoint]) -> "SensorExport":
         entries = [JsonEntry(str(p.to_unix()), round(p.value, DECIMALS))
-                   for p in sorted(points, key=lambda p: p.time)]
+                   for p in _sort_points(points)]
         return cls(sensor_id, entries)
 
 
@@ -50,12 +49,16 @@ def _check_sensor_id(sensor_id: str) -> str:
     return sensor_id
 
 
+def _sort_points(points: List[DataPoint]) -> List[DataPoint]:
+    return sorted(points, key=lambda p: p.time)
+
+
 def to_csv_string(points: List[DataPoint]) -> str:
     """Gibt die Zählerstände eines Sensors als CSV-Text zurück (timestamp,value)."""
     buffer = io.StringIO(newline="")
     writer = csv.writer(buffer, lineterminator="\n")
     writer.writerow(["timestamp", "value"])
-    for p in sorted(points, key=lambda p: p.time):
+    for p in _sort_points(points):
         writer.writerow([p.to_unix(), f"{p.value:.{DECIMALS}f}"])
     return buffer.getvalue()
 
@@ -64,6 +67,10 @@ def to_json_payload(data: Dict[str, List[DataPoint]]) -> list:
     """Baut das Format [{sensorId, data: [{ts, value}]}] für JSON-Datei und HTTP POST."""
     return [asdict(SensorExport.from_points(_check_sensor_id(sid), pts))
             for sid, pts in sorted(data.items())]
+
+
+def to_json_string(data: Dict[str, List[DataPoint]]) -> str:
+    return json.dumps(to_json_payload(data), indent=2)
 
 
 def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Path]:
@@ -82,40 +89,11 @@ def export_csv(data: Dict[str, List[DataPoint]], target_folder: Path) -> List[Pa
 
 
 def export_json(data: Dict[str, List[DataPoint]], target_file: Path) -> Path:
-    """Schreibt alle Zählerstände als JSON-Array: [{sensorId, data: [{ts, value}]}]."""
+    """Schreibt alle Zählerstände in eine JSON-Datei: [{sensorId, data: [{ts, value}]}]."""
     target_file = Path(target_file)
     target_file.parent.mkdir(parents=True, exist_ok=True)
 
     with open(target_file, "w", encoding="utf-8") as f:
-        json.dump(to_json_payload(data), f, indent=2)
+        f.write(to_json_string(data))
 
     return target_file
-
-
-def main() -> None:
-    from volt_trace.analysis import calculate_all_meter_readings
-    from volt_trace.esl import load_esl_folder
-    from volt_trace.sdat import load_sdat_folder
-
-    parser = argparse.ArgumentParser(description="Exportiert Zählerstände als CSV und JSON")
-    parser.add_argument("--sdat-dir", type=Path, required=True, help="Ordner mit sdat-Files")
-    parser.add_argument("--esl-dir", type=Path, required=True, help="Ordner mit ESL-Files")
-    parser.add_argument("--output-dir", type=Path, default=Path("export"), help="Zielordner")
-    args = parser.parse_args()
-
-    readings = calculate_all_meter_readings(
-        load_sdat_folder(args.sdat_dir),
-        load_esl_folder(args.esl_dir),
-    )
-    data = {
-        sensor_id: [DataPoint(r.start_time, r.start_value) for r in values]
-        for sensor_id, values in readings.items()
-    }
-
-    for file in export_csv(data, args.output_dir):
-        print(f"CSV:  {file}")
-    print(f"JSON: {export_json(data, args.output_dir / 'meter_readings.json')}")
-
-
-if __name__ == "__main__":
-    main()
