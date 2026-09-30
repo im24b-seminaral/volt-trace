@@ -210,10 +210,17 @@ Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`
 
 1. **XML-Dateien wählen** oder **Ordner wählen** (nur `.xml`).
 2. Unbekannte Dateien werden beim Sortieren übersprungen (Hinweis in der UI).
-3. **Sensor**, **Zeitraum (UTC)**, **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
+3. **Sensor**, **Zeitraum** (Kalendertage in **Europe/Zurich**), **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
    - **Verbrauch** — SDAT-`Volume` (bei Tag-Ansicht Summe pro Kalendertag).
    - **Zählerstand** — kumulierte absolute Werte aus ESL-Anker + SDAT.
 4. **CSV exportieren** — Download über `/download/<datasetId>/<sensorId>` (nur wenn Zählerstände berechenbar sind).
+
+### Zeitzone in der Oberfläche
+
+- Diagramm-Achse und Tooltips zeigen Zeitstempel in **Europe/Zurich** (`DD.MM.YYYY` bzw. `DD.MM.YYYY HH:mm`).
+- Die API liefert weiterhin UTC-ISO-Strings; die Umrechnung erfolgt in [`nextjs/src/lib/datetime.ts`](nextjs/src/lib/datetime.ts).
+- Datumsfilter (**Von** / **Bis**) bezeichnen lokale Kalendertage in Zurich und werden für die Python-Abfrage in UTC umgerechnet.
+- **CSV-Export** bleibt unverändert: Unix-Zeitstempel in **UTC** (Sekunden).
 
 Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.config.ts`, Standard 120 MB).
 
@@ -401,7 +408,7 @@ npm --prefix nextjs run build
 npm --prefix nextjs run start
 ```
 
-Python-Abhängigkeiten: `pandas`, `openpyxl` (pyproject.toml); `requirements.txt` enthält zusätzlich pytest und FastAPI-Pakete für mögliche Erweiterungen.
+Python-Abhängigkeiten: keine zur Laufzeit (nur Standardbibliothek); `requirements.txt` enthält `pytest` für die Tests.
 
 ### Wichtige Erweiterungspunkte
 
