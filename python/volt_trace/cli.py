@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from volt_trace.quantities import round_kwh
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
 from volt_trace.analysis import calculate_all_meter_readings, remove_duplicates, sort_measured_values_by_time
@@ -112,17 +113,33 @@ def cmd_sensors(dataset_dir: str):
     print(json.dumps(result))
 
 
+def _consumption_day_bucket(interval_end_utc: datetime) -> datetime.date:
+    """Verbrauchstag aus Intervallende (Europe/Zurich); Mitternacht → Vortag."""
+    local_end = interval_end_utc.astimezone(LOCAL_TZ)
+    if (
+        local_end.hour == 0
+        and local_end.minute == 0
+        and local_end.second == 0
+        and local_end.microsecond == 0
+    ):
+        return local_end.date() - timedelta(days=1)
+    return local_end.date()
+
+
 def _aggregate_by_day(points, kind):
     # Tagesgrenzen auf lokaler Mitternacht (NFA-05), Ergebnis-Timestamps in UTC.
-    # ts ist das Intervallende (FA-05): der Wert um 00:00 lokal gehört zum Vortag,
-    # deshalb entscheidet der Intervallbeginn (ts - 15 Min.) über den Tag.
+    # Verbrauch: ts = Intervallende (FA-05).
     by_day = {}
-    for ts, value in sorted(points, key=lambda p: p[0]):
-        day = (ts - INTERVAL).astimezone(LOCAL_TZ).date()
+    for point in sorted(points, key=lambda p: p[0]):
+        ts, value = point[0], point[1]
         if kind == "consumption":
+            day = _consumption_day_bucket(ts)
             by_day[day] = by_day.get(day, 0.0) + value
         else:
+            day = ts.astimezone(LOCAL_TZ).date()
             by_day[day] = value
+    if kind == "consumption":
+        by_day = {day: round_kwh(total) for day, total in by_day.items()}
     return [
         (datetime.combine(day, datetime.min.time(), tzinfo=LOCAL_TZ).astimezone(timezone.utc),
          round(value, 4))
@@ -141,7 +158,10 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
 
     if from_str:
         from_dt = datetime.fromisoformat(from_str.replace("Z", "+00:00"))
-        points = [(t, v) for t, v in points if t >= from_dt]
+        if kind == "consumption":
+            points = [(t, v) for t, v in points if t > from_dt]
+        else:
+            points = [(t, v) for t, v in points if t >= from_dt]
     if to_str:
         to_dt = datetime.fromisoformat(to_str.replace("Z", "+00:00"))
         points = [(t, v) for t, v in points if t <= to_dt]

@@ -305,17 +305,19 @@ Stark vereinfacht (alle Tags haben den Namensraum `rsm` = `http://www.strom.ch`)
 Die einzelnen Messwerte haben **keinen eigenen Zeitstempel**, nur eine Nummer (`Sequence`). Den Zeitpunkt muss man selbst ausrechnen – wie Sitzplätze im Kino: Wenn Reihe 1 bei der Tür beginnt und jede Reihe 1 Meter lang ist, liegt Reihe 5 bei 4 Metern.
 
 ```text
-timestamp = StartDateTime + (Sequence − 1) × Resolution
+timestamp = StartDateTime + Sequence × Resolution
 ```
 
 | Sequence | Rechnung | Zeitstempel (UTC) |
 |---------:|----------|-------------------|
-| 1 | 23:00 + 0 × 15 min | 23:00 |
-| 2 | 23:00 + 1 × 15 min | 23:15 |
-| 3 | 23:00 + 2 × 15 min | 23:30 |
-| 96 | 23:00 + 95 × 15 min | 22:45 (nächster Tag) |
+| 1 | 23:00 + 1 × 15 min | 23:15 |
+| 2 | 23:00 + 2 × 15 min | 23:30 |
+| 3 | 23:00 + 3 × 15 min | 23:45 |
+| 96 | 23:00 + 96 × 15 min | 23:00 (nächster Tag) |
 
-> ⚠️ Der Zeitstempel ist damit der **Beginn** des 15-Minuten-Intervalls. Laut Pflichtenheft (FA-05) sollte es das **Ende** sein. Siehe [Schwachstellen](#14-bekannte-schwachstellen-im-code).
+Der Zeitstempel ist das **Ende** des 15-Minuten-Intervalls (FA-05). `rsm:Unit` muss `MIN` sein; Anzahl und Sequenz werden gegen `StartDateTime`/`EndDateTime` geprüft.
+
+**Rundung (NFA-04):** `volt_trace.quantities.round_kwh` rundet kWh-Werte auf **4 Nachkommastellen**; ESL-Abgleich toleriert Abweichungen unter **0,001 kWh**.
 
 ### Konstanten
 
@@ -614,9 +616,9 @@ Werden aus `sdat.py` importiert (keine eigenen Kopien mehr).
 ```python
 @dataclass
 class MeterReading:
-    timestamp: datetime   # UTC, Beginn des Intervalls
-    consumption: float    # Verbrauch im Intervall ab timestamp (kWh, aus sdat)
-    meter_value: float    # Zählerstand zum Zeitpunkt timestamp (kWh, berechnet)
+    timestamp: datetime   # UTC, Ende des Intervalls (Beginn, Ende]
+    consumption: float    # Verbrauch im Intervall mit diesem Ende (kWh, aus sdat)
+    meter_value: float    # Zählerstand am Ende des Intervalls (kWh, berechnet)
 
 MeterSeries = Dict[datetime, MeterReading]
 ```
@@ -631,15 +633,12 @@ Pro Sensor gibt es eine `MeterSeries`. Das `dict` garantiert eindeutige Zeitstem
 
 Berechnet den Zählerstand für **einen** Sensor, ausgehend vom ESL-Anker **vorwärts und rückwärts** (FA-07).
 
-**Konvention:** Ein Zählerstand gilt für den Zeitpunkt selbst, also *vor* dem Verbrauch des Intervalls, das dort beginnt: `Stand(t + 15 min) = Stand(t) + volume(t)`.
+**Konvention:** SDAT-`timestamp` und ESL-Anker sind **Intervallenden**. Am Anker gilt `meter_value = start_value`; Intervalle danach werden vorwärts aufsummiert, davor rückwärts abgezogen.
 
 ```python
-measured_values = remove_duplicates(sorted(measured_values, key=lambda mv: mv.timestamp))
 before = [mv for mv in measured_values if mv.timestamp < start_time]
-after = [mv for mv in measured_values if mv.timestamp >= start_time]
-
-# rückwärts: erst abziehen, dann speichern
-# vorwärts: erst speichern, dann addieren
+at_anchor = [mv for mv in measured_values if mv.timestamp == start_time]
+after = [mv for mv in measured_values if mv.timestamp > start_time]
 ```
 
 Rechenbeispiel mit ESL-Anker **1000.0 kWh** um 23:00 UTC:
@@ -1174,9 +1173,7 @@ Die vollständige Liste mit Prioritäten steht in [OFFENE_PUNKTE.md](../OFFENE_P
 
 | Stelle | Was passiert | Folge |
 |--------|--------------|-------|
-| `sdat._parse_observations` | Zeitstempel = **Beginn** des Intervalls | Laut FA-05 sollte es das Ende sein; alle Werte liegen 15 min zu früh |
-| `sdat._parse_resolution` | `<rsm:Unit>` wird nicht gelesen | Andere Einheiten als Minuten würden falsch gerechnet |
-| `analysis`, alle Summen | Rechnen mit `float` | Kleine Rundungsfehler sammeln sich über viele Werte an (NFA-04) |
+| `analysis`, alle Summen | Rechnen mit `float` | Rundung zentral auf 4 Stellen (`quantities.py`); Rest-Rundungsfehler möglich (NFA-04) |
 | `cli.cmd_export` | baut CSV selbst | Keine Rundung auf 4 Stellen, `export.py` wird nicht benutzt |
 | `calc_values.py` | Code auf Modulebene | Import startet sofort die ganze Berechnung |
 | `__init__.py` | Docstring verspricht zentrale Exporte | Es wird nur `__version__` definiert |

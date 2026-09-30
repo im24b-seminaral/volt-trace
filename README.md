@@ -73,9 +73,9 @@ Typische Inhalte pro Datei:
 - `Creation`, `Interval` (Start/Ende), `Resolution` (z. B. 15 Minuten)
 - `Observation` mit `Sequence` und `Volume` (kWh pro Intervall)
 
-Zeitstempel pro Messwert:
+Zeitstempel pro Messwert (FA-05):
 
-`timestamp = StartDateTime + (Sequence − 1) × Resolution` (in Minuten, UTC).
+`timestamp = StartDateTime + Sequence × Resolution` — **Intervallende** in UTC. Verbrauchsfilter in der API: `(Beginn, Ende]` (Grenze Beginn exklusiv, Ende inklusiv).
 
 ### ESL (ESLBillingData)
 
@@ -114,8 +114,8 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 ### Zählerstand berechnen (`calculate_all_meter_readings`)
 
 - Pro Sensor: **frühester** ESL-Stichtag als Referenz (`start_time`, `start_value`).
-- Alle SDAT-Messwerte mit `timestamp >= start_time` werden chronologisch kumuliert:  
-  `Zählerstand += Volume` je Intervall.
+- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.  
+  Intervalle mit Ende nach dem Anker werden vorwärts kumuliert (`Zählerstand += Volume`), davor rückwärts abgezogen.
 - Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
 
 ### Duplikate (SDAT)
@@ -158,9 +158,25 @@ volt-trace/
 
 ## Voraussetzungen
 
-- **Python** ≥ 3.10 (empfohlen: aktuelle 3.12+ Installation mit `python` im PATH)
-- **Node.js** LTS (für Next.js; npm enthalten)
-- **Windows / macOS / Linux** — die Pfade in `python.ts` unterstützen Windows-venv und Unix-venv
+| Komponente | Version (v1.0) |
+|------------|----------------|
+| **Python** | **3.14+** ([`python/pyproject.toml`](python/pyproject.toml), [`python/.python-version`](python/.python-version)) |
+| **Node.js** | **24.x LTS** ([`nextjs/package.json`](nextjs/package.json) `engines`, [`nextjs/.nvmrc`](nextjs/.nvmrc)) |
+| **npm** | `npm ci` im Ordner `nextjs` |
+
+Plattformen: **Windows / macOS / Linux**. Node **22** oder älter löst bei `npm ci` eine `EBADENGINE`-Warnung aus; für Abnahme ist **Node 24** vorgeschrieben.
+
+### Abhängigkeiten v1.0 (Abgleich Pflichtenheft §5.3)
+
+| Rolle | Pakete |
+|-------|--------|
+| Python Runtime | nur Standardbibliothek im Paket `volt_trace` |
+| Python Dev/Test | `pytest==8.4.2` ([`python/requirements.txt`](python/requirements.txt)) |
+| Frontend Runtime | Next.js, React, Radix UI, Recharts, Lucide, Tailwind (via PostCSS), `clsx`, `class-variance-authority`, `tailwind-merge`, `tw-animate-css` — siehe [`nextjs/package.json`](nextjs/package.json) `dependencies` |
+| Generator/Build | `shadcn` (CLI), TypeScript, `@tailwindcss/postcss`, `tailwindcss` — nur `devDependencies` |
+| Nicht erlaubt / ungenutzt | pandas, openpyxl, FastAPI, uvicorn, `cn`, `requests` (bis FA-12) |
+
+Direkte npm-/pip-Versionen sind **exakt** gepinnt; transitive Abhängigkeiten stehen im Lockfile.
 
 ---
 
@@ -173,6 +189,7 @@ Im **Repository-Root** (`volt-trace`, enthält `python/` und `nextjs/`):
 ```powershell
 python -m venv python\.venv
 .\python\.venv\Scripts\python -m pip install -r python\requirements.txt
+.\python\.venv\Scripts\python -m pip install -e python
 npm --prefix nextjs ci
 ```
 
@@ -181,14 +198,11 @@ npm --prefix nextjs ci
 ```bash
 python3 -m venv python/.venv
 ./python/.venv/bin/pip install -r python/requirements.txt
+./python/.venv/bin/pip install -e python
 npm --prefix nextjs ci
 ```
 
-Optional Paket im Editable-Modus (für Entwicklung):
-
-```bash
-cd python && python -m pip install -e ".[dev]"
-```
+Verifikation und Plattformnachweise: [`docs/ABNAHME_RUNTIME_v1.0.md`](docs/ABNAHME_RUNTIME_v1.0.md).
 
 ---
 

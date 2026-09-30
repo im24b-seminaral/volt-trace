@@ -7,7 +7,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List
 
-DECIMALS = 4
+from volt_trace.quantities import KWH_DECIMALS
+
+DECIMALS = KWH_DECIMALS
 SENSOR_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
