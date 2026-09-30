@@ -1,346 +1,120 @@
 # Volt Trace
 
-Webanwendung und Python-Bibliothek zur Auswertung von Schweizer Stromzählerdaten im **SDAT**-Format (relative 15-Minuten-Verbräuche) und **ESL**-Format (absolute Zählerstände an Stichtagen). Aus SDAT und ESL werden fortlaufende Zählerstände berechnet, als Diagramme angezeigt und als CSV exportiert.
+Run these commands from the repository root in PowerShell.
 
----
-
-## Inhalt
-
-- [Überblick](#überblick)
-- [Architektur](#architektur)
-- [Datenformate](#datenformate)
-- [Verarbeitungslogik](#verarbeitungslogik)
-- [Projektstruktur](#projektstruktur)
-- [Voraussetzungen](#voraussetzungen)
-- [Installation](#installation)
-- [Web-Oberfläche](#web-oberfläche)
-- [Python-CLI und Pipeline](#python-cli-und-pipeline)
-- [Exportformate](#exportformate)
-- [Tests](#tests)
-- [Beispieldaten](#beispieldaten)
-- [Funktionale Anforderungen (Übersicht)](#funktionale-anforderungen-übersicht)
-- [Entwicklung](#entwicklung)
-
----
-
-## Überblick
-
-| Sensor-ID | Bedeutung | Richtung |
-|-----------|-----------|----------|
-| **ID742** | Netzbezug | Netz → Gebäude |
-| **ID735** | Einspeisung (z. B. Solar) | Gebäude → Netz |
-
-Die Anwendung:
-
-1. nimmt XML-Dateien (SDAT und ESL) per Upload oder Ordnerauswahl entgegen,
-2. sortiert sie in `sdat/` und `esl/` Unterordnern,
-3. parst und verknüpft die Messreihen,
-4. zeigt **Verbrauch** (SDAT-Volumen) oder **Zählerstand** (berechnet) in Diagrammen,
-5. exportiert Zählerstände als **CSV** (pro Sensor).
-
----
-
-## Architektur
-
-```text
-┌─────────────────────────────────────────────────────────────┐
-│  Next.js (nextjs/) — Browser, Port 3000                     │
-│  • Upload, Filter (Sensor, Zeitraum, Auflösung, Diagrammtyp) │
-│  • Server Actions + API-Route für CSV-Download              │
-└───────────────────────────┬─────────────────────────────────┘
-                            │ exec: python -m volt_trace.cli …
-                            │ (venv: python/.venv)
-┌───────────────────────────▼─────────────────────────────────┐
-│  Python (python/volt_trace/)                                │
-│  sdat.py → esl.py → analysis.py → export.py                 │
-│  cli.py    Schnittstelle für die Web-UI                     │
-│  main.py   Batch-Pipeline (Ordner → CSV + JSON auf Disk)    │
-└─────────────────────────────────────────────────────────────┘
-```
-
-- **Kein separater Python-HTTP-Server** für die Standard-Oberfläche: Next.js startet bei Bedarf Subprozesse (`nextjs/src/lib/python.ts`).
-- Hochgeladene Datensätze liegen unter `nextjs/data/<UUID>/` mit Unterordnern `sdat/` und `esl/`.
-
----
-
-## Datenformate
-
-### SDAT (ValidatedMeteredData, Strom.ch)
-
-Typische Inhalte pro Datei:
-
-- `DocumentID` → Sensor-ID (Suffix nach `_`, z. B. `…_ID735`)
-- `Creation`, `Interval` (Start/Ende), `Resolution` (z. B. 15 Minuten)
-- `Observation` mit `Sequence` und `Volume` (kWh pro Intervall)
-
-Zeitstempel pro Messwert:
-
-`timestamp = StartDateTime + (Sequence − 1) × Resolution` (in Minuten, UTC).
-
-### ESL (ESLBillingData)
-
-Typische Inhalte:
-
-- `Meter` mit `factoryNo` (wird beim Parsen nicht einzeln gefiltert; relevante OBIS-Werte stammen vom Hauptzähler)
-- `TimePeriod end="…"` — Ablesezeitpunkt in **Lokalzeit Europe/Zurich** (ohne `Z`)
-- `ValueRow` mit `obis`, `value`, optional `status`
-
-Effektiver Zählerstand pro Richtung:
-
-| Richtung | OBIS Hochtarif | OBIS Niedertarif | Sensor |
-|----------|----------------|------------------|--------|
-| Bezug | `1-1:1.8.1` | `1-1:1.8.2` | ID742 |
-| Einspeisung | `1-1:2.8.1` | `1-1:2.8.2` | ID735 |
-
-Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-Gruppen (z. B. `1-1:1.8.0`) werden ignoriert.
-
-`TimePeriod end` wird nach UTC konvertiert (Winter-/Sommerzeit über `zoneinfo`).
-
----
-
-## Verarbeitungslogik
-
-### SDAT laden (`load_sdat_folder`)
-
-- Alle `*.xml` in einem Ordner einlesen.
-- Pro Datei Sensor-ID extrahieren; aktuell werden nur **ID735** und **ID742** verarbeitet (`ALLOWED_SENSOR_IDS` in `sdat.py`).
-- Messwerte gleicher Sensoren aus mehreren Dateien werden zusammengeführt.
-
-### ESL laden (`load_esl_folder`)
-
-- Alle ESL-XMLs einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln.
-- Doppelte Stichtags-Zeitstempel pro Sensor werden entfernt (`remove_esl_duplicates`).
-
-### Zählerstand berechnen (`calculate_all_meter_readings`)
-
-- Pro Sensor: **frühester** ESL-Stichtag als Referenz (`start_time`, `start_value`).
-- Alle SDAT-Messwerte mit `timestamp >= start_time` werden chronologisch kumuliert:  
-  `Zählerstand += Volume` je Intervall.
-- Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
-
-### Duplikate (SDAT)
-
-Innerhalb einer Datei und nach dem Zusammenführen: gleicher Zeitstempel → es bleibt der **erste** Eintrag (`remove_duplicates`).  
-Eine feinere Regel „alle Files nach `Creation` sortieren, letzter gewinnt“ ist in der Spezifikation beschrieben, aber im Code noch nicht vollständig umgesetzt — bei grossen Produktivdatensätzen kann das relevant sein.
-
-### Rückwärtsrechnung vor dem ESL-Anker
-
-Die aktuelle Implementierung rechnet **vorwärts** ab dem ersten ESL-Stichtag. Punkte **vor** diesem Stichtag werden nicht aus dem Anker zurückgerechnet.
-
----
-
-## Projektstruktur
-
-```text
-volt-trace/
-├── README.md
-├── nextjs/                    # Next.js 16 Frontend
-│   ├── src/app/               # Seite, Upload-Action, CSV-Download-Route
-│   ├── src/components/        # Diagramme, FileUpload, UI (shadcn)
-│   ├── src/lib/python.ts      # Aufruf von volt_trace.cli
-│   └── data/                  # Upload-Datensätze (UUID-Ordner, gitignored)
-├── python/
-│   ├── volt_trace/
-│   │   ├── sdat.py            # SDAT-Parser, MeasuredValue
-│   │   ├── esl.py             # ESL-Parser, EslMeterReading, OBIS-Summe
-│   │   ├── analysis.py        # Zählerstandsberechnung
-│   │   ├── export.py          # CSV- und JSON-Dateiexport
-│   │   ├── cli.py             # Kommandos für die Web-UI
-│   │   ├── main.py            # CLI-Pipeline mit --esl-dir / --sdat-dir
-│   │   └── compare_esl_vs_sdat.py  # Hilfsskript zum Abgleich ESL vs. SDAT
-│   ├── tests/                 # pytest (ESL-Fixtures, …)
-│   ├── data/                  # Beispiel-ESL-XML
-│   └── requirements.txt
-└── sdat_files/                # Beispiel-SDAT-XML
-```
-
----
-
-## Voraussetzungen
-
-- **Python** ≥ 3.10 (empfohlen: aktuelle 3.12+ Installation mit `python` im PATH)
-- **Node.js** LTS (für Next.js; npm enthalten)
-- **Windows / macOS / Linux** — die Pfade in `python.ts` unterstützen Windows-venv und Unix-venv
-
----
-
-## Installation
-
-Im **Repository-Root** (`volt-trace`, enthält `python/` und `nextjs/`):
-
-### Windows (PowerShell)
+**Setup**
 
 ```powershell
-python -m venv python\.venv
-.\python\.venv\Scripts\python -m pip install -r python\requirements.txt
-npm --prefix nextjs ci
+cd python
+python -m venv .venv
+.\.venv\Scripts\python -m pip install -r requirements.txt
+cd ..\nextjs
+npm install
 ```
 
-### macOS / Linux
-
-```bash
-python3 -m venv python/.venv
-./python/.venv/bin/pip install -r python/requirements.txt
-npm --prefix nextjs ci
-```
-
-Optional Paket im Editable-Modus (für Entwicklung):
-
-```bash
-cd python && python -m pip install -e ".[dev]"
-```
-
----
-
-## Web-Oberfläche
-
-### Starten
-
-Im Repository-Root:
+**Start (from `nextjs`)**
 
 ```powershell
-npm --prefix nextjs run dev
+npm run dev
 ```
 
-Browser: [http://localhost:3000](http://localhost:3000)
-
-Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`python3` aus dem PATH.
-
-### Bedienung
-
-1. **XML-Dateien wählen** oder **Ordner wählen** (nur `.xml`).
-2. Unbekannte Dateien werden beim Sortieren übersprungen (Hinweis in der UI).
-3. **Sensor**, **Zeitraum (UTC)**, **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
-   - **Verbrauch** — SDAT-`Volume` (bei Tag-Ansicht Summe pro Kalendertag).
-   - **Zählerstand** — kumulierte absolute Werte aus ESL-Anker + SDAT.
-4. **CSV exportieren** — Download über `/download/<datasetId>/<sensorId>` (nur wenn Zählerstände berechenbar sind).
-
-Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.config.ts`, Standard 120 MB).
+Open <http://localhost:3000>. Select the XML files or a folder in the app.
+Next.js runs the Python processing directly; no separate API server is needed.
 
 ---
 
-## Python-CLI und Pipeline
+## Offene Punkte gemäss Pflichtenheft v0.9
 
-Alle Befehle aus dem Ordner `python/` (mit aktivierter venv oder `python -m`):
+Stand: 30.09.2026. Referenzen (FA/NFA) beziehen sich auf das Pflichtenheft.
 
-### Web-Schnittstelle (`volt_trace.cli`)
+### 1. Fachlogik Python (Muss, höchste Priorität)
 
-| Kommando | Argumente | Ausgabe |
-|----------|-----------|---------|
-| `sort-files` | `<srcDir> <datasetDir>` | JSON: Dateien nach `sdat/` / `esl/` verschieben |
-| `sensors` | `<datasetDir>` | JSON: Sensorliste inkl. `hasMeterReadings` |
-| `series` | `<datasetDir> <sensorId> <kind> <resolution> <from> <to>` | JSON-Zeitreihe (`kind`: `consumption` \| `meter-reading`, `resolution`: `day` \| `15min`) |
-| `export` | `<datasetDir> <sensorId>` | CSV auf stdout (`timestamp,value`) |
+- [ ] **FA-05: Zeitstempel falsch.** [sdat.py](python/volt_trace/sdat.py) rechnet `start + (sequence - 1) * resolution`, beschriftet also mit dem Intervall*beginn*. Gefordert ist das Intervall*ende*: `start + sequence * resolution`. Alle Werte liegen aktuell 15 min zu früh.
+- [ ] **FA-05:** Einheit von `rsm:Resolution` (`rsm:Unit`) prüfen statt immer Minuten anzunehmen. `rsm:Interval/EndDateTime` einlesen und prüfen: Anzahl Werte = (Ende − Beginn) / Auflösung.
+- [ ] **FA-06: Duplikatregel verkehrt.** Dateien werden in `glob`-Reihenfolge gelesen und `remove_duplicates` behält den *ersten* Wert. Gefordert: Dateien nach `rsm:Creation` aufsteigend (bei Gleichstand nach Dateiname) einlesen, der *zuletzt* gelesene Wert gewinnt. Ohne Korrektur enthält die Kurve rund 18 % falsche Nullwerte.
+- [ ] **FA-07: Umrechnung unvollständig.** [analysis.py](python/volt_trace/analysis.py) summiert nur ab dem ersten ESL-Anker auf. Es fehlen:
+  - Neuansatz an jedem ESL-Ablesezeitpunkt
+  - Gewichtungsfaktor je Intervall (ESL-Differenz / Summe sdat)
+  - Ausweisung von Faktor, ungewichteter Summe und ESL-Differenz je Intervall (Ansatz in `compare_esl_vs_sdat.py` wiederverwenden)
+  - Rückwärtsrechnung vor dem ersten Anker (Werte davor werden aktuell verworfen)
+  - Randfälle: nach dem letzten Anker, Summe = 0
+- [ ] **FA-03:** `ALLOWED_SENSOR_IDS` in [sdat.py](python/volt_trace/sdat.py) entfernen. Alle Sensoren (auch ID26256, ID26257, ID26263) einlesen, Zählerstand nur wo ein ESL-Anker existiert.
+- [ ] **FA-01:** `rsm:Creation` einlesen (wird für FA-06 gebraucht). Unterordner rekursiv lesen (`rglob`). Anzahl gefundener, eingelesener und übersprungener Dateien ausweisen, inkl. Fehler beim Parsen.
+- [ ] **FA-02:** ESL `Meter factoryNo` und `Status` einlesen. Zeilen mit Status ≠ V überspringen und ausweisen.
+- [ ] **NFA-06:** `load_sdat_folder` / `load_esl_folder` ohne try/except, eine defekte Datei bricht den ganzen Lauf ab. Die 32 sdat-Files ohne Resolution müssen gemeldet, aber nicht zum Absturz führen (sonst fehlt ID26263).
+- [ ] **NFA-04:** Aufsummieren in `float` erzeugt Rundungsfehler. Zahlentyp und Rundung festlegen (z. B. `Decimal` oder Rundung auf 4 Stellen) und dokumentieren.
+- [ ] **NFA-05:** Tageswerte in [cli.py](python/volt_trace/cli.py) (`_aggregate_by_day`) werden mit `datetime.combine` ohne Zeitzone erzeugt. Mit `tzinfo=timezone.utc` erzeugen.
 
-Beispiel:
+### 2. Performance und Architektur
 
-```bash
-cd python
-python -m volt_trace.cli sensors ../nextjs/data/<UUID>
-```
+- [ ] **NFA-03: zu langsam.** Das Einlesen aller sdat-Files dauert lokal ca. 70 s (Vorgabe: max. 10 s, Gesamtablauf < 60 s). Zusätzlich liest *jeder* Aufruf von `cli.py` den ganzen Datensatz neu ein; die Seite ruft pro Anzeige `sensors` und `series` auf, also zweimal. Lösung: einmal einlesen und das Ergebnis zwischenspeichern (z. B. als JSON/Pickle im Datensatz-Ordner nach dem Upload) oder einen dauerhaft laufenden Python-Prozess verwenden.
+- [ ] **NFA-03:** Fortschrittsanzeige beim Upload/Einlesen (aktuell nur „Lade hoch …“).
+- [ ] **NFA-01 / NFA-11: Abweichung vom Pflichtenheft.** Das Pflichtenheft verlangt eine HTTP-API mit FastAPI/uvicorn; umgesetzt ist ein direkter Aufruf der Python-CLI aus Next.js. Entweder FastAPI umsetzen oder das Pflichtenheft (NFA-01, NFA-11, Kap. 5.3) für Version 1.0 anpassen.
+- [ ] **NFA-01:** Python-Teil ist kaum objektorientiert (Funktionen + Dataclasses). Klassen für Einlesen, Datenmodell, Berechnung, Export einführen.
+- [ ] **NFA-02:** Ein gemeinsames Datenmodell für Messwerte (Zeitpunkt, relativer Wert, absoluter Zählerstand). Aktuell gibt es `MeasuredValue`, `EslMeterReading` (wird auch für berechnete Zählerstände missbraucht) und `DataPoint` in `export.py`.
+- [ ] **NFA-09:** `sort_measured_values_by_time` / `remove_duplicates` existieren dreimal (sdat, analysis, compare). Duplikatregel darf nur einmal im Code stehen. `cli.py` baut den CSV-Export selbst, statt `to_csv_string` aus [export.py](python/volt_trace/export.py) zu verwenden.
 
-### Batch-Pipeline (`volt_trace.main`)
+### 3. Frontend
 
-Liest zwei Ordner, berechnet Zählerstände, schreibt **CSV und JSON** nach `--output-dir`:
+- [ ] **FA-08 / FA-09:** Bezug und Einspeisung als **getrennte Reihen im selben Diagramm** darstellen (aktuell nur ein Sensor).
+- [ ] **FA-08 / FA-09:** Achsen beschriften: „Zeit (UTC)“ und „kWh“ (Einheit steht aktuell nur im Tooltip).
+- [ ] **FA-13:** JSON-Download über die Oberfläche anbieten (`export_json` / `to_json_payload` existieren bereits).
+- [ ] **NFA-03 / FA-08:** Auflösung „15 Minuten“ ist seit Commit `02cac85` auch ohne Zeitraum wählbar; dann werden ca. 200'000 Einzelwerte gezeichnet. 15 Minuten nur mit gesetztem Von/Bis erlauben (Diagramme nie aus allen Einzelmessungen).
 
-```bash
-cd python
-python -m volt_trace.main --esl-dir pfad/zu/esl --sdat-dir pfad/zu/sdat --output-dir export
-```
+### 4. Sicherheit und Datenschutz
 
-### Abgleich ESL vs. SDAT
+- [ ] **NFA-12:** Hochgeladene Daten bleiben dauerhaft in `nextjs/data/` liegen. Müssen beim Ende der Sitzung (bzw. nach Ablauf) gelöscht werden.
+- [ ] **NFA-11 / NFA-12:** `next dev` ist aus dem Netzwerk erreichbar. Nur lokal binden: `next dev -H 127.0.0.1` (Script in `package.json` anpassen).
+- [ ] `python/data/` enthält eine echte ESL-Datei im Repository. Entfernen bzw. nach `tests/fixtures/` verschieben, falls sie für Tests gebraucht wird.
 
-`compare_esl_vs_sdat.py` vergleicht Differenzen zwischen ESL-Stichtagen und summierten SDAT-Volumina (lokales Hilfsskript, nicht Teil der Web-UI).
+### 5. Tests (Kap. 5.5)
 
----
+- [ ] [test_esl.py](python/tests/test_esl.py) importiert alte Funktionsnamen (`_effektiver_zaehlerstand_pro_gruppe`, `_obis_gruppe`), pytest bricht beim Sammeln ab. Auf `_total_readings_by_obis_group` / `_obis_group` umstellen.
+- [ ] [test_analysis.py](python/tests/test_analysis.py) enthält nur einen Docstring, keine Tests.
+- [ ] Prüfdatensatz mit bekannten Werten für FA-07 / NFA-04 anlegen (vorwärts und rückwärts vom Anker).
+- [ ] Tests für FA-05: Tagesdatei 96 Werte, Zeitumstellungstage 92 und 100 Werte, Monatsdatei 2'976 Werte.
+- [ ] Tests für FA-06 (neueste Datei gewinnt) und FA-10 (CSV-Format).
 
-## Exportformate
+### 6. Nachweise für die Abnahme
 
-### CSV (Pflicht)
+- [ ] **NFA-03:** Zeit am vollständigen Beispieldatensatz messen: Ordnerwahl bis Diagramm < 60 s, davon Übertragung ≤ 45 s und Lesen ≤ 10 s. Oberfläche darf nie länger als 1 s blockieren.
+- [ ] **NFA-07:** Ordnerauswahl, Diagrammwechsel, Sensorauswahl, Zeitraumauswahl und Export in Chrome, Safari und Firefox testen.
+- [ ] **NFA-08:** Vollständiger Durchlauf (Ordnerauswahl, Einlesen, beide Diagramme, CSV-Export) unter Windows und macOS, je in zwei Browsern.
+- [ ] **NFA-13:** Speicherbedarf der Datenverarbeitung < 1 GB, Durchlauf auf einem Notebook mit 8 GB RAM ohne Auslagern. Falls die Übertragung zu langsam ist: Upload als ZIP-Archiv.
+- [ ] **NFA-06:** Nachweis mit defekten/leeren Dateien: Meldung statt Abbruch, Oberfläche bleibt bedienbar.
 
-- Eine Datei pro Sensor: `ID742.csv`, `ID735.csv`
-- Header: `timestamp,value`
-- `timestamp`: Unix-Sekunden, UTC
-- `value`: absoluter Zählerstand (Float, Punkt als Dezimaltrennzeichen)
-- Komma als Feldtrennzeichen
+### 7. Offene Fragen an den Auftraggeber (Kapitel 9, Meeting 30.09.2026)
 
-Implementierung: `export.py` (`export_csv`); Web-Download via `cli export`.
+Nach dem Meeting Antworten hier eintragen und betroffene Punkte oben anpassen.
 
-### JSON (Nice-to-have)
+- [ ] **F3:** Duplikatregel „neuestes `rsm:Creation` gewinnt“ korrekt? → betrifft FA-06
+- [ ] **F4:** Ziel-URL und erwartete Antwort für HTTP POST? → betrifft FA-12
+- [ ] **F8:** Gewichtung der Verbrauchswerte zwischen zwei Ablesungen gewünscht oder Werte unverändert? → betrifft FA-07, NFA-04
+- [ ] **F12:** Öffentliche Bereitstellung auf einer Domain erlaubt? → betrifft FA-14
+- [ ] **F13:** Anzeige in UTC oder Lokalzeit (Europe/Zurich)? → betrifft NFA-05, beide Diagramme, Zeitraumauswahl
 
-- `export_json` in `export.py` schreibt pro Sensor eine JSON-Datei mit Struktur  
-  `[{ "sensorId": "…", "data": [{ "ts": "<ISO8601>", "value": … }] }]`
-- **HTTP POST** an einen externen Server ist in den Modul-Kommentaren spezifiziert, aber **noch nicht implementiert**.
+### 8. Liefergegenstände ausserhalb des Codes (Kapitel 7)
 
----
+- [ ] **L1:** Zwischenbericht als PDF + Meeting, Mi 30.09.2026, 09:00
+- [ ] Pflichtenheft Version 1.0 nach Klärung der Fragen, zur Unterschrift (Kapitel 10)
+- [ ] **L3:** Präsentation inklusive Demo, Fr 02.10.2026, 08:45
+- [ ] **L4:** Dokumentation über alle IPERKA-Phasen, Fr 02.10.2026, 12:00. Muss u. a. enthalten: verwendete Rundung und Zahlentypen (NFA-04), Testprotokoll mit Soll-Ist-Vergleich je ESL-Intervall (Kap. 5.5).
 
-## Tests
+### 9. Aufräumen
 
-```bash
-cd python
-python -m pytest -q
-```
+- [ ] [main.py](python/volt_trace/main.py) ist mit dem neuen `export.py` inkompatibel (übergibt Tupel statt `DataPoint`, `export_json` erwartet jetzt eine Datei). Reparieren oder löschen; `export.py` hat vorerst ein eigenes `main()`.
+- [ ] Fest eingetragene Pfade (`C:\volt-trace\...`) in `analysis.py` und `compare_esl_vs_sdat.py` entfernen (NFA-08). `compare_esl_vs_sdat.py` importiert `from sdat import …` und funktioniert als Modul nicht.
+- [ ] **NFA-01, Versionen:** `pyproject.toml` auf `requires-python = ">=3.14"` setzen, `pandas` und `openpyxl` entfernen (unbenutzt, nicht erlaubt). `requirements.txt` mit exakten Versionen. In `package.json` `engines.node` auf 24 setzen und `^`-Versionen fixieren; das Paket `cn` prüfen/entfernen.
+- [ ] **Kap. 5.3:** Frontend-Abhängigkeiten (Radix, Lucide, Tailwind, shadcn …) im Pflichtenheft ergänzen, da die Liste als abschliessend gilt.
+- [ ] Beispieldatensatz lokal: 45 ESL-Files / 44 Stichtage statt 47 / 45 laut Pflichtenheft. Datensatz oder Zahlen im Pflichtenheft prüfen.
 
-- `tests/test_esl.py` — OBIS-Gruppierung, Hoch-/Niedertarif-Summe, UTC-Konvertierung, fehlende Register
-- `tests/fixtures/` — minimale ESL-XMLs
+### 10. Fehlende Liefergegenstände im Code
 
-Hinweis: Funktionsnamen in `esl.py` heissen `_obis_group` und `_total_readings_by_obis_group`; Tests müssen dieselben Namen importieren, damit pytest grün läuft.
+- [ ] **FA-11:** Klassendiagramm des Python-Teils inkl. Klassen für FA-12/FA-13, plus Komponentendiagramm (Muss).
+- [ ] **FA-12 (Nice to have):** HTTP POST an einstellbare URL, Antwortstatus anzeigen. `to_json_payload` in `export.py` kann als Payload verwendet werden; `requests` erst dann in `requirements.txt` aufnehmen.
+- [ ] **FA-14 (Nice to have):** öffentliche Bereitstellung, nur nach Zustimmung (F12).
 
----
+### Erledigt
 
-## Beispieldaten
-
-| Pfad | Inhalt |
-|------|--------|
-| `sdat_files/*.xml` | SDAT-Beispiel (ID735, 15-Min-Intervall) |
-| `python/data/EdmRegisterWertExport_*.xml` | ESL mit Zähler `38157930`, OBIS 1.8.x / 2.8.x |
-
-Für End-to-End-Tests: SDAT- und ESL-Ordner mit passenden Sensor-IDs und überlappendem Zeitraum verwenden.
-
----
-
-## Funktionale Anforderungen (Übersicht)
-
-Kurzstatus gegen die Seminar-Spezifikation (ohne Gewähr auf Vollständigkeit der Abnahme):
-
-| ID | Thema | Status im Repo |
-|----|--------|----------------|
-| FA-01 | SDAT einlesen | Kernfelder ja; `Creation`/Merge-Regel teilweise |
-| FA-02 | ESL einlesen | `end`, OBIS, `value` ja; `factoryNo`/`status` nicht modelliert |
-| FA-03 | Sensoren / UI | UI für ID735/742; weitere IDs nur wenn in SDAT und Parser erlaubt |
-| FA-04 | OBIS-Summe HT+NT | Implementiert in `esl.py` |
-| FA-05 | Zeitstempel aus Sequence | Implementiert in `sdat.py` |
-| FA-06 | Duplikate nach Creation | Vereinfacht (erster Timestamp gewinnt) |
-| FA-07 | Zählerstand Anker + Konsistenz | Vorwärts ab frühestem ESL; keine Rückwärtsrechnung / ESL-Toleranztests |
-| FA-08–09 | Verbrauchs- / Zählerstandsdiagramm | Web-UI mit Recharts |
-| FA-10 | CSV-Export | Ja (CLI + Download) |
-| FA-11 | Klassen-/Komponentendiagramm | Dokumentation ausserhalb des Repos |
-| FA-12–13 | JSON HTTP POST / JSON-Datei | JSON-Datei via `main.py`; HTTP POST offen |
-
----
-
-## Entwicklung
-
-```bash
-# Typecheck Frontend
-npm --prefix nextjs run typecheck
-
-# Produktionsbuild
-npm --prefix nextjs run build
-npm --prefix nextjs run start
-```
-
-Python-Abhängigkeiten: `pandas`, `openpyxl` (pyproject.toml); `requirements.txt` enthält zusätzlich pytest und FastAPI-Pakete für mögliche Erweiterungen.
-
-### Wichtige Erweiterungspunkte
-
-- SDAT-Deduplizierung über alle Dateien nach `Creation` (aufsteigend), letzter Wert gewinnt
-- Rückwärtsrechnung und Validierung an allen ESL-Stichtagen (&lt; 0,001 kWh)
-- Generische Sensor-IDs (nicht nur ID735/ID742)
-- HTTP-POST-Export (FA-12) und einheitliches JSON-Schema zwischen Export und API
-
----
-
-## Lizenz / Autoren
-
-Seminarprojekt **volt-trace** — Version siehe `python/volt_trace/__init__.py` (`__version__`).
+- [x] **export.py:** CSV mit 4 Nachkommastellen, JSON-`ts` als Unix-Epoch-String in UTC gemäss Vorgabe des Auftraggebers, Fehler bei Zeitstempel ohne Zeitzone, `to_csv_string` / `to_json_payload`, Prüfung der Sensorkennung.
+- [x] Next.js: `params` als Promise, `maxBuffer` für grosse Exporte, Prüfung von Datensatz-ID und Sensorkennung, Zeitraumfilter mit UTC-Zeitzone (Commit `02cac85`).
