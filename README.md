@@ -59,7 +59,8 @@ Die Anwendung:
 ```
 
 - **Kein separater Python-HTTP-Server** für die Standard-Oberfläche: Next.js startet bei Bedarf Subprozesse (`nextjs/src/lib/python.ts`).
-- Hochgeladene Datensätze liegen unter `nextjs/data/<UUID>/` mit Unterordnern `sdat/` und `esl/`.
+- Hochgeladene Datensätze liegen **nur zur Laufzeit** unter dem konfigurierbaren Datenverzeichnis (Standard: OS-Temp `volt-trace-data/<UUID>/` mit `sdat/`, `esl/` und `.processed-v1.cache`), nicht im Git-Repository.
+- Jede Browser-Sitzung (`vt_session`-Cookie) darf nur eigene Dataset-IDs lesen/exportieren; Verarbeitung erfolgt ausschließlich lokal (Next.js + Python-Subprozess, kein Netzwerkport in Python).
 
 ---
 
@@ -73,9 +74,9 @@ Typische Inhalte pro Datei:
 - `Creation`, `Interval` (Start/Ende), `Resolution` (z. B. 15 Minuten)
 - `Observation` mit `Sequence` und `Volume` (kWh pro Intervall)
 
-Zeitstempel pro Messwert:
+Zeitstempel pro Messwert (FA-05):
 
-`timestamp = StartDateTime + (Sequence − 1) × Resolution` (in Minuten, UTC).
+`timestamp = StartDateTime + Sequence × Resolution` — **Intervallende** in UTC. Verbrauchsfilter in der API: `(Beginn, Ende]` (Grenze Beginn exklusiv, Ende inklusiv).
 
 ### ESL (ESLBillingData)
 
@@ -114,19 +115,18 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 
 ### Zählerstand berechnen (`calculate_all_meter_readings`)
 
-- Pro Sensor: **frühester** ESL-Stichtag als Referenz (`start_time`, `start_value`).
-- Alle SDAT-Messwerte mit `timestamp >= start_time` werden chronologisch kumuliert:  
-  `Zählerstand += Volume` je Intervall.
+- Pro Sensor: erster ESL-Stichtag innerhalb des SDAT-Zeitraums als Referenz; falls keiner darin liegt, der früheste ESL-Stichtag.
+- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.
+  Intervalle mit Ende nach dem Anker werden vorwärts kumuliert (`Zählerstand += Volume`), davor rückwärts abgezogen.
 - Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
 
 ### Duplikate (SDAT)
 
-Innerhalb einer Datei und nach dem Zusammenführen: gleicher Zeitstempel → es bleibt der **erste** Eintrag (`remove_duplicates`).  
-Eine feinere Regel „alle Files nach `Creation` sortieren, letzter gewinnt“ ist in der Spezifikation beschrieben, aber im Code noch nicht vollständig umgesetzt — bei grossen Produktivdatensätzen kann das relevant sein.
+Innerhalb einer Datei müssen die Sequenznummern vollständig und eindeutig sein. Über mehrere Dateien hinweg gewinnt bei gleichem Zeitstempel der Wert aus der zuletzt erstellten Datei (`Creation`); bei gleichem `Creation` entscheidet der relative Dateipfad.
 
 ### Rückwärtsrechnung vor dem ESL-Anker
 
-Die aktuelle Implementierung rechnet **vorwärts** ab dem ersten ESL-Stichtag. Punkte **vor** diesem Stichtag werden nicht aus dem Anker zurückgerechnet.
+Die Implementierung rechnet Werte vor dem ESL-Anker rückwärts und Werte danach vorwärts.
 
 ---
 
@@ -139,7 +139,7 @@ volt-trace/
 │   ├── src/app/               # Seite, Upload-Action, CSV-Download-Route
 │   ├── src/components/        # Diagramme, FileUpload, UI (shadcn)
 │   ├── src/lib/python.ts      # Aufruf von volt_trace.cli
-│   └── data/                  # Upload-Datensätze (UUID-Ordner, gitignored)
+│   └── (kein data/ im Repo; Laufzeit unter VOLT_TRACE_DATA_DIR / OS-Temp)
 ├── python/
 │   ├── volt_trace/
 │   │   ├── sdat.py            # SDAT-Parser, MeasuredValue
@@ -217,7 +217,7 @@ Im Repository-Root:
 npm --prefix nextjs run dev
 ```
 
-Browser: [http://localhost:3000](http://localhost:3000)
+Browser: [http://127.0.0.1:3000](http://127.0.0.1:3000) (Dev- und Produktionsstart binden nur an **127.0.0.1**, kein LAN-Zugriff).
 
 Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`python3` aus dem PATH.
 
@@ -239,6 +239,14 @@ Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`
 
 Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.config.ts`, Standard 120 MB).
 
+### Sitzung und Datenschutz (NFA-11 / NFA-12)
+
+- **Keine Konten:** Zugriff über HttpOnly-Cookie `vt_session` (Session-Cookie, endet mit dem Browser-Tab bzw. Browser-Sitzung).
+- **Eigentümerschaft:** `?dataset=<UUID>` allein reicht nicht — Diagramm und CSV prüfen, ob die UUID zur aktuellen Sitzung gehört (fremde IDs → Fehlermeldung bzw. HTTP 403 beim Export).
+- **Speicherort:** `VOLT_TRACE_DATA_DIR` (optional); sonst `%TEMP%/volt-trace-data` (Windows) bzw. `/tmp/volt-trace-data` (Unix).
+- **Aufräumen:** Fehlgeschlagene Uploads löschen den Dataset-Ordner; abgelaufene Sitzungen (Idle-TTL, Standard 4 h, `SESSION_IDLE_TTL_MS`) werden beim nächsten Request bereinigt (`_sessions/*.json` + zugehörige Datensätze inkl. Cache).
+- **Abnahme (manuell):** Zwei Browser-Profile mit gleicher Dataset-URL → nur Besitzer sieht Daten; nach Cookie-Löschen/TTL keine XML/Cache-Reste unter `VOLT_TRACE_DATA_DIR`; `next build` ohne Tracing-Warnung zu tausenden Dateien im Projektbaum.
+
 ---
 
 ## Python-CLI und Pipeline
@@ -258,7 +266,7 @@ Beispiel:
 
 ```bash
 cd python
-python -m volt_trace.cli sensors ../nextjs/data/<UUID>
+python -m volt_trace.cli sensors <VOLT_TRACE_DATA_DIR>/<UUID>
 ```
 
 ### Batch-Pipeline (`volt_trace.main`)

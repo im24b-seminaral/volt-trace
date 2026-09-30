@@ -50,7 +50,7 @@ def _files() -> dict[str, str]:
 def _import(raw: Path, destination: Path, capsys):
     cli.cmd_sort_files(str(raw), str(destination))
     report = json.loads(capsys.readouterr().out)
-    sdat, esl, _series, _skipped = cli._load(str(destination))
+    sdat, esl, _skipped = cli._load(str(destination))
     return report, sdat, esl
 
 

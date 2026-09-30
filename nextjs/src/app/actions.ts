@@ -6,6 +6,7 @@ import path from "node:path";
 import { redirect } from "next/navigation";
 import { datasetPath, runPython } from "@/lib/python";
 import type { ImportReport } from "@/lib/types";
+import { deleteDataset, endSession, getOrCreateSession, registerDataset } from "@/lib/session";
 
 function safeUploadPath(value: string): string {
   const parts = value.replaceAll("\\", "/").split("/");
@@ -16,14 +17,20 @@ function safeUploadPath(value: string): string {
   return path.join(...parts);
 }
 
+export async function clearSession(): Promise<void> {
+  await endSession();
+}
+
 export async function uploadDataset(_previous: string, form: FormData): Promise<string> {
   const selectedFiles = form.getAll("files").filter((file): file is File => file instanceof File && !!file.name);
   const folderFiles = form.getAll("folder").filter((file): file is File => file instanceof File && !!file.name);
   const folderPaths = form.getAll("folderPath").map(String);
   if (!selectedFiles.length && !folderFiles.length) return "Bitte XML-/ZIP-Dateien oder einen Ordner auswählen.";
+  const sessionId = await getOrCreateSession();
   const id = randomUUID();
   const destination = datasetPath(id);
   const raw = destination + "_raw";
+  let uploadOk = false;
   try {
     await mkdir(raw, { recursive: true });
     const names = new Set<string>();
@@ -52,12 +59,15 @@ export async function uploadDataset(_previous: string, form: FormData): Promise<
         : "Keine verwendbaren XML-Dateien gefunden.";
     }
     await writeFile(path.join(destination, "import-report.json"), JSON.stringify(result), "utf-8");
+    await registerDataset(sessionId, id);
+    uploadOk = true;
   } catch (error) {
     console.error(error);
     await rm(destination, { recursive: true, force: true });
     return error instanceof Error ? error.message : "Upload fehlgeschlagen. Bitte erneut versuchen.";
   } finally {
     await rm(raw, { recursive: true, force: true });
+    if (!uploadOk) await deleteDataset(id);
   }
   redirect(`/?dataset=${id}`);
 }

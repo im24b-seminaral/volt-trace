@@ -73,12 +73,15 @@ def test_series_invariant_holds_on_sample_data(comparisons):
 
 def test_compare_with_esl_flags_anchor_ok_deviation_and_out_of_range():
     t0 = datetime(2019, 1, 1, tzinfo=timezone.utc)
-    values = [MeasuredValue(t0 + timedelta(minutes=15 * i), i + 1, 1.0) for i in range(8)]
+    values = [
+        MeasuredValue(t0 + timedelta(minutes=15 * (i + 1)), i + 1, 1.0, 15)
+        for i in range(8)
+    ]
     esl = [
-        EslMeterReading(t0, 100.0),                          # Anker
-        EslMeterReading(t0 + timedelta(hours=1), 104.0),     # 4 x 1.0 -> OK
-        EslMeterReading(t0 + timedelta(hours=1, minutes=45), 110.0),  # 107 berechnet
-        EslMeterReading(t0 + timedelta(days=1), 200.0),      # ausserhalb sdat
+        EslMeterReading(t0 + timedelta(minutes=15), 101.0),
+        EslMeterReading(t0 + timedelta(minutes=60), 104.0),
+        EslMeterReading(t0 + timedelta(minutes=105), 110.0),
+        EslMeterReading(t0 + timedelta(days=1), 200.0),
     ]
     result = compare_with_esl({"ID742": values}, {"ID742": esl})
     assert [c.status for c in result] == ["Anker", "OK", "Abweichung", "nicht prüfbar"]

@@ -7,15 +7,15 @@ Stand: 30.09.2026, nach Commit `3e3d24f` plus Umbau NFA-02 (Variante B, noch nic
 ## 1. Fachlogik Python (Muss, höchste Priorität)
 
 - [ ] **sdat-Werte passen nicht zu ESL (Faktor 3).** Zwischen zwei ESL-Stichtagen ist die Summe der sdat-Volumen bei ID742 und ID735 in jedem Intervall genau 3,00-mal so gross wie die ESL-Differenz (z. B. 31.12.18–28.02.19: ESL 4252.5 kWh, sdat 12757.8 kWh). Parser und Deduplizierung sind geprüft und nicht die Ursache. Folge: berechnete Zählerstände laufen von den ESL-Werten weg, rückwärts werden sie negativ, und `test_meter_readings_match_esl_within_tolerance` schlägt fehl (62 Abweichungen). Mit dem Auftraggeber klären (siehe F14), nicht ohne Begründung im Code korrigieren.
-- [ ] **FA-05: Zeitstempel falsch.** [sdat.py](python/volt_trace/sdat.py) rechnet `start + (sequence - 1) * resolution`, beschriftet also mit dem Intervall*beginn*. Gefordert ist das Intervall*ende*: `start + sequence * resolution`. Alle Werte liegen aktuell 15 min zu früh. Bei der Umstellung die Konvention in `analysis.calculate_meter_readings` und `cli._aggregate_by_day` mit anpassen (siehe Kommentare dort).
-- [ ] **FA-05:** Einheit von `rsm:Resolution` (`rsm:Unit`) prüfen statt immer Minuten anzunehmen. Prüfen: Anzahl Werte = (Ende − Beginn) / Auflösung (`rsm:EndDateTime` wird bisher nur für Files ohne Resolution gelesen).
+- [x] **FA-05: Zeitstempel Intervallende.** `sdat.py` setzt `timestamp = start + sequence × resolution`; `analysis.calculate_meter_readings` und `cli._aggregate_by_day` (Mitternacht → Vortag) sind angepasst.
+- [x] **FA-05:** `rsm:Unit` (nur `MIN`), Validierung `count == max_seq == (Ende − Beginn) / Auflösung`, Sequenz `1..N` ohne Lücken; fehlerhafte Files in `skipped`.
 - [ ] **FA-07: Umrechnung noch nicht vollständig.** Vorwärts- und Rückwärtsrechnung ab dem ersten ESL-Stichtag im sdat-Zeitraum ist umgesetzt. Es fehlen noch (abhängig von F8):
   - Neuansatz an jedem ESL-Ablesezeitpunkt
   - Gewichtungsfaktor je Intervall (ESL-Differenz / Summe sdat)
   - Ausweisung von Faktor, ungewichteter Summe und ESL-Differenz je Intervall (Ansatz in `compare_esl_vs_sdat.py`)
   - Randfälle: nach dem letzten Anker, Summe = 0
 - [ ] **FA-01:** Unterordner rekursiv lesen. `cmd_sort_files` in [cli.py](python/volt_trace/cli.py) und die Loader verwenden nur `glob("*")` bzw. `glob("*.xml")`.
-- [ ] **NFA-04:** Aufsummieren in `float` erzeugt Rundungsfehler. Zahlentyp und Rundung festlegen (z. B. `Decimal` oder Rundung auf 4 Stellen) und dokumentieren.
+- [x] **NFA-04 (teilweise):** `quantities.py` mit `round_kwh` / `sum_kwh` (4 Dezimalstellen) in ESL, CLI-Tagesaggregation und SDAT-Volumes; Speicherung weiter `float`, ESL-Toleranz 0,001 kWh.
 
 ## 2. Performance und Architektur
 
@@ -44,12 +44,12 @@ Stand: 30.09.2026, nach Commit `3e3d24f` plus Umbau NFA-02 (Variante B, noch nic
 
 ## 4. Sicherheit und Datenschutz
 
-- [ ] **NFA-12:** Hochgeladene Daten bleiben dauerhaft in `nextjs/data/` liegen, seit `789a619` zusätzlich als `.processed-v1.cache` pro Datensatz. Beides muss beim Ende der Sitzung (bzw. nach Ablauf) gelöscht werden.
-- [ ] **NFA-11 / NFA-12:** `next dev` ist aus dem Netzwerk erreichbar. Nur lokal binden: `next dev -H 127.0.0.1` (Script in `package.json` anpassen).
+- [x] **NFA-12:** Sitzungs-Cookie `vt_session`, Eigentümerschaft bei Anzeige/Export, Laufzeitdaten unter `VOLT_TRACE_DATA_DIR` (Default OS-Temp), `deleteDataset`/`purgeExpiredSessions`, Upload-Cleanup.
+- [x] **NFA-11 / NFA-12:** `next dev` / `next start` mit `-H 127.0.0.1`; Python bleibt Subprozess ohne Port.
 
 ## 5. Tests (Kap. 5.5)
 
-- [ ] Tests für FA-05: Tagesdatei 96 Werte, Zeitumstellungstage 92 und 100 Werte, Monatsdatei 2'976 Werte (die Tagesaggregation in `test_daily_aggregation.py` prüft 92/100 bereits, das Einlesen der sdat-Files noch nicht).
+- [x] Tests für FA-05: `test_sdat_timestamps.py` (96/92/100/2976, Unit/Sequenz), `test_daily_aggregation.py` (Intervallende, Mitternacht), `test_quantities.py`.
 - [ ] Tests für FA-06 (neueste Datei gewinnt) und FA-10 (CSV-Format).
 
 ## 6. Nachweise für die Abnahme

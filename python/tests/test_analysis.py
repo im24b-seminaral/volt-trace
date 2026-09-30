@@ -36,16 +36,23 @@ from volt_trace.sdat import MeasuredValue
 ANCHOR = datetime(2019, 1, 1, tzinfo=timezone.utc)
 
 
-def _values(start, volumes):
-    return [MeasuredValue(start + timedelta(minutes=15 * i), i + 1, v)
-            for i, v in enumerate(volumes)]
+def _values(first_interval_end, volumes, step=15):
+    return [
+        MeasuredValue(
+            first_interval_end + timedelta(minutes=step * i),
+            i + 1,
+            v,
+            step,
+        )
+        for i, v in enumerate(volumes)
+    ]
 
 
 def test_value_at_anchor_equals_esl_value():
     readings = list(calculate_meter_readings(_values(ANCHOR, [1.0, 2.0]), 100.0, ANCHOR).values())
     assert readings[0].timestamp == ANCHOR
     assert readings[0].meter_value == 100.0
-    assert readings[1].meter_value == 101.0
+    assert readings[1].meter_value == 102.0
 
 
 def test_value_before_anchor_is_anchor_minus_volume():
@@ -79,7 +86,7 @@ def test_meter_reading_joins_consumption_and_meter_value():
     # NFA-02: Verbrauch und Zählerstand stehen zum selben Zeitpunkt im selben Messwert.
     series = calculate_meter_readings(_values(ANCHOR, [0.25, 0.5]), 100.0, ANCHOR)
     assert series[ANCHOR + timedelta(minutes=15)] == MeterReading(
-        ANCHOR + timedelta(minutes=15), 0.5, 100.25)
+        ANCHOR + timedelta(minutes=15), 0.5, 100.5)
 
 
 def test_series_is_unique_sorted_and_utc():
