@@ -26,8 +26,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       const directory = datasetPath(dataset);
       sensors = JSON.parse(await runPython("sensors", directory));
       if (!sensors.some((sensor) => sensor.sensorId === sensorId)) sensorId = sensors[0]?.sensorId ?? "";
-      if (from && to && from > to) throw new Error("Ungültiger Zeitraum.");
-      if (sensorId) {
+      if (from && to && from > to) error = "Das Enddatum muss nach dem Startdatum liegen.";
+      if (resolution === "15min" && (!from || !to || !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(to) - Date.parse(from) >= 31 * 86400000)) {
+        error = "Für 15-Minuten-Werte bitte einen Zeitraum von höchstens 31 Tagen wählen.";
+      }
+      if (sensorId && !error) {
         const series: SensorSeries[] = JSON.parse(await runPython("series", directory, sensorId, kind, resolution,
           from ? `${from}T00:00:00Z` : "", to ? `${to}T23:59:59.999999Z` : ""));
         points = series[0]?.data ?? [];
