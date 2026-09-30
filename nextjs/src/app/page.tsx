@@ -16,7 +16,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const get = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
   const dataset = get("dataset");
   const kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
-  const resolution = get("resolution") === "15min" ? "15min" : "day";
+  // Zählerstände (ESL) werden nie aggregiert: keine Auflösungswahl, keine 31-Tage-Grenze (FA-09).
+  const resolution = kind === "consumption" && get("resolution") === "15min" ? "15min" : "day";
   const from = get("from");
   const to = get("to");
   let sensors: Sensor[] = [];

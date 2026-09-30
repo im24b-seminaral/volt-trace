@@ -13,7 +13,6 @@ from zoneinfo import ZoneInfo
 from volt_trace.quantities import round_kwh
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
-from volt_trace.analysis import calculate_all_meter_readings, remove_duplicates, sort_measured_values_by_time
 
 NS_SDAT = "{http://www.strom.ch}"
 LOCAL_TZ = ZoneInfo("Europe/Zurich")
@@ -56,7 +55,7 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
 
     # Files lesen und Fehler sammeln (füllt gleichzeitig den Cache) - NFA-06.
     # Meter-Skips (FA-04) sind erwartet und werden hier nicht als Fehler gemeldet.
-    skipped = _load(dataset_dir)[3]
+    skipped = _load(dataset_dir)[2]
     issues += [entry for entry in skipped if "meter" not in entry]
 
     print(json.dumps({"processedFiles": processed, "skippedFiles": len(issues), "issues": issues}))
@@ -65,7 +64,7 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
 def _load(dataset_dir: str):
     base = Path(dataset_dir).resolve()
     # Only server-generated caches are read; uploads are restricted to XML.
-    cache = base / ".processed-v1.cache"
+    cache = base / ".processed-v2.cache"
     sources = sorted([*base.glob("sdat/*.xml"), *base.glob("esl/*.xml"),
                       *Path(__file__).parent.glob("*.py")])
     fingerprint = hashlib.sha256()
@@ -82,12 +81,9 @@ def _load(dataset_dir: str):
         pass
 
     skipped = []   # defekte Files und übersprungene Datensätze (NFA-06)
-    sdat_data = load_sdat_folder(base / "sdat", skipped)
-    sdat_data = {sensor: remove_duplicates(sort_measured_values_by_time(values))
-                 for sensor, values in sdat_data.items()}
-    esl_data = load_esl_folder(base / "esl", skipped)
-    meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
-    data = sdat_data, esl_data, meter_readings, skipped
+    sdat_data = load_sdat_folder(base / "sdat", skipped)   # dedupliziert + sortiert (FA-06)
+    esl_data = load_esl_folder(base / "esl", skipped)      # ESL-Stände (HT + NT)
+    data = sdat_data, esl_data, skipped
     # Atomic replacement also allows simultaneous requests to finish safely.
     with tempfile.NamedTemporaryFile(dir=base, delete=False) as stream:
         temporary = Path(stream.name)
@@ -100,15 +96,17 @@ def _load(dataset_dir: str):
 
 
 def cmd_sensors(dataset_dir: str):
-    sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
+    sdat_data, esl_data, _skipped = _load(dataset_dir)
+    sensor_ids = sorted(set(sdat_data) | set(esl_data))
     result = [
         {
             "sensorId": sensor_id,
             "label": sensor_id,
             "direction": SENSOR_DIRECTIONS.get(sensor_id, "other"),
-            "hasMeterReadings": sensor_id in meter_readings,
+            "hasConsumption": sensor_id in sdat_data,
+            "hasMeterReadings": sensor_id in esl_data,
         }
-        for sensor_id in sdat_data
+        for sensor_id in sensor_ids
     ]
     print(json.dumps(result))
 
@@ -148,13 +146,12 @@ def _aggregate_by_day(points, kind):
 
 
 def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, from_str: str, to_str: str):
-    sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
+    sdat_data, esl_data, _skipped = _load(dataset_dir)
 
     if kind == "consumption":
-        values = sdat_data.get(sensor_id, [])
-        points = [(v.timestamp, v.volume) for v in values]
+        points = [(v.timestamp, v.volume) for v in sdat_data.get(sensor_id, [])]
     else:
-        points = [(r.timestamp, r.meter_value) for r in meter_readings.get(sensor_id, {}).values()]
+        points = [(r.start_time, r.start_value) for r in esl_data.get(sensor_id, [])]
 
     if from_str:
         from_dt = datetime.fromisoformat(from_str.replace("Z", "+00:00"))
@@ -166,7 +163,10 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
         to_dt = datetime.fromisoformat(to_str.replace("Z", "+00:00"))
         points = [(t, v) for t, v in points if t <= to_dt]
 
-    points = _aggregate_by_day(points, kind) if resolution == "day" else sorted(points, key=lambda p: p[0])
+    if kind == "consumption" and resolution == "day":
+        points = _aggregate_by_day(points, kind)
+    else:
+        points = sorted(points, key=lambda p: p[0])   # ESL nie aggregieren
 
     print(json.dumps([{
         "sensorId": sensor_id,
@@ -175,12 +175,11 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
 
 
 def cmd_export(dataset_dir: str, sensor_id: str):
-    _sdat_data, _esl_data, meter_readings, _skipped = _load(dataset_dir)
-    series = meter_readings.get(sensor_id, {})
+    _sdat_data, esl_data, _skipped = _load(dataset_dir)
     writer = csv.writer(sys.stdout)
     writer.writerow(["timestamp", "value"])
-    for r in series.values():   # bereits sortiert (check_series)
-        writer.writerow([int(r.timestamp.timestamp()), r.meter_value])
+    for r in esl_data.get(sensor_id, []):   # bereits sortiert (load_esl_folder)
+        writer.writerow([int(r.start_time.timestamp()), r.start_value])
 
 
 if __name__ == "__main__":

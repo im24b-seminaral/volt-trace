@@ -149,4 +149,7 @@ def load_esl_folder(folder_path: Path, skipped: List[dict] | None = None):
                                 "skippedRecords": len(invalid_rows)})
         for sensor_id, values in readings.items():
             all_readings.setdefault(sensor_id, []).extend(values)
-    return {sensor_id: remove_esl_duplicates(r) for sensor_id, r in all_readings.items()}
+    return {
+        sensor_id: sorted(remove_esl_duplicates(readings), key=lambda r: r.start_time)
+        for sensor_id, readings in all_readings.items()
+    }
