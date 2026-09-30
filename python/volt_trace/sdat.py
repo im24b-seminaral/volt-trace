@@ -28,8 +28,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 NS = {"rsm": "http://www.strom.ch"}
-ALLOWED_SENSOR_IDS = {"ID735", "ID742"}
-
+# Bekannte Sensoren; alle anderen werden eingelesen und als "other" geführt (FA-03).
+SENSOR_DIRECTIONS = {"ID742": "consumption", "ID735": "feed-in"}
 
 @dataclass
 class MeasuredValue:
@@ -44,6 +44,10 @@ def _get_text(element, xpath) -> str | None:
         raise ValueError(f"Tag not found: {xpath}")
     return node.text
 
+def _find_text(element, xpath) -> str | None:
+    """Wie _get_text, gibt aber None zurück statt eine Exception zu werfen."""
+    node = element.find(xpath, NS)
+    return node.text if node is not None and node.text is not None else None
 
 def _extract_sensor_id(document_id) -> str:
     return document_id.rsplit("_", 1)[-1]
@@ -82,25 +86,43 @@ def _parse_observations(root, start, resolution) -> List[MeasuredValue]:
     measured_values = remove_duplicates(measured_values)
     return measured_values
 
+def _parse_resolution(root, start) -> int | None:
+    """Messintervall in Minuten.
 
-def parse_sdat_file(file_path: Path) -> Dict[str, List[MeasuredValue]]:
-    """Liest ein sdat-File ein. Gibt {sensor_id: [Messwerte]} zurück,
-    oder ein leeres Dict, wenn der Sensor nicht in ALLOWED_SENSOR_IDS ist."""
+    Neuere Files (Schema 1p5) haben kein rsm:Resolution, sondern nur einen
+    Wert für den ganzen Zeitraum. Dort ergibt sich die Auflösung aus der
+    Intervall-Länge geteilt durch die Anzahl Messwerte.
+    """
+    resolution_text = _find_text(root, ".//rsm:Resolution/rsm:Resolution")
+    if resolution_text is not None:
+        return int(resolution_text)
+
+    end_text = _find_text(root, ".//rsm:Interval/rsm:EndDateTime")
+    anzahl = len(root.findall(".//rsm:Observation", NS))
+    if end_text is None or anzahl == 0:
+        return None
+    duration = _parse_timestamp(end_text) - start
+    return int(duration.total_seconds() // 60 // anzahl)
+
+def parse_sdat_file(file_path: Path) -> Tuple[datetime, Dict[str, List[MeasuredValue]]]:
+    """Liest ein sdat-File ein. Gibt (Creation-Zeitpunkt, {sensor_id: [Messwerte]})
+    zurück. Alle Sensoren werden eingelesen (FA-03); das Dict ist leer, wenn dem
+    File Pflichtangaben fehlen (NFA-06)."""
     root = ET.parse(file_path).getroot()
     creation = _parse_creation(root)
     document_id = _get_text(root, ".//rsm:InstanceDocument/rsm:DocumentID")
     sensor_id = _extract_sensor_id(document_id)
 
-    if sensor_id not in ALLOWED_SENSOR_IDS:
+    start_text = _find_text(root, ".//rsm:Interval/rsm:StartDateTime")
+    if start_text is None:
+        return creation, {}   # unvollständiges File, wird übersprungen
+    start = _parse_timestamp(start_text)
+
+    resolution = _parse_resolution(root, start)
+    if resolution is None:
         return creation, {}
 
-    start = _get_text(root, ".//rsm:Interval/rsm:StartDateTime")
-    start = _parse_timestamp(start)
-
-    resolution = int(_get_text(root, ".//rsm:Resolution/rsm:Resolution"))
-
-    messwerte = _parse_observations(root, start, resolution)
-    return creation, {sensor_id: messwerte}
+    return creation, {sensor_id: _parse_observations(root, start, resolution)}
 
 def load_sdat_folder(folder_path: Path) -> Dict[str, List[MeasuredValue]]:
     """Liest alle Files eines Ordners, aufsteigend sortiert nach (Creation, Dateiname).

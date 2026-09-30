@@ -9,7 +9,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime
 
-from volt_trace.sdat import load_sdat_folder
+from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
 from volt_trace.analysis import calculate_all_meter_readings, remove_duplicates, sort_measured_values_by_time
 
@@ -95,7 +95,7 @@ def cmd_sensors(dataset_dir: str):
         {
             "sensorId": sensor_id,
             "label": sensor_id,
-            "direction": "consumption" if sensor_id == "ID742" else "feed-in",
+            "direction": SENSOR_DIRECTIONS.get(sensor_id, "other"),
             "hasMeterReadings": sensor_id in meter_readings,
         }
         for sensor_id in sdat_data
