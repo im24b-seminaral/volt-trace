@@ -79,7 +79,7 @@ def _parse_observations(root, start, resolution) -> List[MeasuredValue]:
     for obs in observations:
         sequence = int(_get_text(obs, ".//rsm:Position/rsm:Sequence"))
         volume = float(_get_text(obs, ".//rsm:Volume"))
-        timestamp = start + timedelta(minutes=(sequence - 1) * resolution)
+        timestamp = start + timedelta(minutes=sequence * resolution)   # Intervallende (FA-05)
         measured_values.append(MeasuredValue(timestamp, sequence, volume))
         
     measured_values = sort_measured_values_by_time(measured_values)
