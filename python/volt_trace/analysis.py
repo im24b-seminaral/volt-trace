@@ -3,14 +3,13 @@ analysis.py - Datenaggregation, Verknüpfung und Zählerstandsberechnung.
 
 Zweck und Aufgaben dieser Datei:
 --------------------------------
-1. Datenmodell «Messwert»:
-   - Speicherung von:
-     * timestamp: Eindeutiger Zeitstempel in UTC (dient als Primärschlüssel / Key)
-     * relative_value: Relativer Verbrauchswert aus sdat (z. B. in 15-Minuten-Intervallen)
-     * absolute_value: Berechneter absoluter Zählerstand zu diesem Zeitpunkt
+1. Datenmodell «Messwert» (NFA-02): Klasse MeterReading mit
+     * timestamp: Zeitstempel in UTC (Intervallbeginn, dient als Schlüssel)
+     * consumption: Verbrauchswert aus sdat im Intervall ab timestamp
+     * meter_value: Berechneter absoluter Zählerstand zu diesem Zeitpunkt
 2. Duplikatbehandlung und Sortierung:
-   - Zusammenführen von Messwerten in einer sortierten, duplikatfreien Datenstruktur
-     (z. B. Dict sortiert nach Timestamp oder pandas.DataFrame mit Timestamp-Index).
+   - Ablage pro Sensor als MeterSeries = dict[datetime, MeterReading].
+   - Invariante (eindeutig, aufsteigend sortiert, UTC) wird von check_series geprüft.
 3. Verrechnung von ESL- und SDAT-Daten:
    - Verbinden der relativen SDAT-Verbrauchswerte mit den absoluten ESL-Stichtagszählerständen:
      * ID735 (Einspeisung) & ID742 (Netzbezug).
@@ -23,7 +22,7 @@ Zweck und Aufgaben dieser Datei:
 
 from dataclasses import dataclass
 from typing import List, Dict
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from volt_trace.sdat import (
@@ -38,11 +37,37 @@ DATA_DIR = Path(__file__).resolve().parents[2] / "XML-Files"
 ESL_TOLERANCE_KWH = 0.001  # FA-07 / NFA-04
 
 
+@dataclass
+class MeterReading:
+    """Messwert (NFA-02): Verbrauch und Zählerstand eines Sensors zu einem Zeitpunkt."""
+    timestamp: datetime   # UTC, Beginn des Intervalls
+    consumption: float    # Verbrauch im Intervall ab timestamp (kWh, aus sdat)
+    meter_value: float    # Zählerstand zum Zeitpunkt timestamp (kWh, berechnet)
+
+
+# Zeitreihe eines Sensors. Ein dict garantiert eindeutige Schlüssel und behält die
+# Einfügereihenfolge; check_series belegt, dass diese aufsteigend und in UTC ist.
+MeterSeries = Dict[datetime, MeterReading]
+
+
+def check_series(series: MeterSeries) -> None:
+    """Prüft die Invariante von NFA-02: Schlüssel = timestamp, UTC, streng aufsteigend."""
+    previous = None
+    for key, reading in series.items():
+        if key != reading.timestamp:
+            raise ValueError(f"Schlüssel {key} passt nicht zum Messwert {reading.timestamp}")
+        if key.utcoffset() != timedelta(0):
+            raise ValueError(f"Zeitstempel nicht in UTC: {key}")
+        if previous is not None and key <= previous:
+            raise ValueError(f"Zeitstempel nicht aufsteigend: {previous} -> {key}")
+        previous = key
+
+
 def calculate_meter_readings(
     measured_values: List[MeasuredValue],  # Messwerte eines Sensors aus sdat.py
     start_value: float,  # absoluter Zählerstand aus dem ESL-File (Anker)
     start_time: datetime,  # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
-) -> List[EslMeterReading]:
+) -> MeterSeries:
     # Konvention: Ein Zählerstand gilt für den Zeitpunkt selbst, also vor dem Verbrauch
     # des Intervalls, das dort beginnt (sdat-Timestamp = Intervallbeginn).
     # Stand(t + resolution) = Stand(t) + volume(t)
@@ -51,21 +76,23 @@ def calculate_meter_readings(
     after = [mv for mv in measured_values if mv.timestamp >= start_time]
 
     # Rückwärts ab Anker: das Volumen des eigenen Intervalls abziehen, dann speichern.
-    backward: List[EslMeterReading] = []
+    backward: List[MeterReading] = []
     running_total = start_value
     for mv in reversed(before):
         running_total -= mv.volume
-        backward.append(EslMeterReading(mv.timestamp, running_total))
+        backward.append(MeterReading(mv.timestamp, mv.volume, running_total))
     backward.reverse()
 
     # Vorwärts ab Anker: zuerst speichern, dann das Volumen des Intervalls addieren.
-    forward: List[EslMeterReading] = []
+    forward: List[MeterReading] = []
     running_total = start_value
     for mv in after:
-        forward.append(EslMeterReading(mv.timestamp, running_total))
+        forward.append(MeterReading(mv.timestamp, mv.volume, running_total))
         running_total += mv.volume
 
-    return backward + forward
+    series = {reading.timestamp: reading for reading in backward + forward}
+    check_series(series)
+    return series
 
 
 def _choose_reference(
@@ -83,8 +110,8 @@ def _choose_reference(
 def calculate_all_meter_readings(
     sdat_data: Dict[str, List[MeasuredValue]],
     esl_data: Dict[str, List[EslMeterReading]],
-) -> Dict[str, List[EslMeterReading]]:
-    results: Dict[str, List[EslMeterReading]] = {}
+) -> Dict[str, MeterSeries]:
+    results: Dict[str, MeterSeries] = {}
     for sensor_id, measured_values in sdat_data.items():
         esl_readings = esl_data.get(sensor_id, [])
         if not esl_readings or not measured_values:
@@ -131,15 +158,15 @@ def compare_with_esl(
     """Vergleicht an jedem ESL-Stichtag den berechneten mit dem gemessenen Zählerstand."""
     meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
     results: List[EslComparison] = []
-    for sensor_id, readings in sorted(meter_readings.items()):
-        calculated = {r.start_time: r.start_value for r in readings}
+    for sensor_id, series in sorted(meter_readings.items()):
         anchor = _choose_reference(esl_data[sensor_id], sdat_data[sensor_id])
         for esl in sorted(esl_data[sensor_id], key=lambda r: r.start_time):
+            reading = series.get(esl.start_time)
             results.append(EslComparison(
                 sensor_id,
                 esl.start_time,
                 esl.start_value,
-                calculated.get(esl.start_time),
+                None if reading is None else reading.meter_value,
                 esl.start_time == anchor.start_time,
             ))
     return results
@@ -150,7 +177,8 @@ if __name__ == "__main__":
     esl = load_esl_folder(DATA_DIR / "ESL-Files")
 
     meter_readings = calculate_all_meter_readings(sdat, esl)
-    for sensor_id, readings in meter_readings.items():
+    for sensor_id, series in meter_readings.items():
+        readings = list(series.values())
         print(f"{sensor_id}: {len(readings)} Werte")
         print(f"  erster: {readings[0]}")
         print(f"  letzter: {readings[-1]}")

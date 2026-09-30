@@ -401,7 +401,7 @@ npm --prefix nextjs run build
 npm --prefix nextjs run start
 ```
 
-Python-Abhängigkeiten: `pandas`, `openpyxl` (pyproject.toml); `requirements.txt` enthält zusätzlich pytest und FastAPI-Pakete für mögliche Erweiterungen.
+Python-Abhängigkeiten: keine zur Laufzeit (nur Standardbibliothek); `requirements.txt` enthält `pytest` für die Tests.
 
 ### Wichtige Erweiterungspunkte
 

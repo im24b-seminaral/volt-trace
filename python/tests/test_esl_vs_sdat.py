@@ -9,7 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from volt_trace.analysis import DATA_DIR, ESL_TOLERANCE_KWH, compare_with_esl
+from volt_trace.analysis import (
+    DATA_DIR,
+    ESL_TOLERANCE_KWH,
+    calculate_all_meter_readings,
+    check_series,
+    compare_with_esl,
+)
 from volt_trace.esl import EslMeterReading, load_esl_folder
 from volt_trace.export import export_esl_comparison_csv
 from volt_trace.sdat import MeasuredValue, load_sdat_folder
@@ -26,11 +32,11 @@ def comparisons():
     esl = load_esl_folder(DATA_DIR / "ESL-Files")
     result = compare_with_esl(sdat, esl)
     export_esl_comparison_csv(result, REPORT_FILE)
-    return result, sdat
+    return result, sdat, esl
 
 
 def test_every_esl_date_inside_sdat_range_is_checked(comparisons):
-    result, sdat = comparisons
+    result, sdat, _ = comparisons
     for sensor_id in SENSORS:
         timestamps = [mv.timestamp for mv in sdat[sensor_id]]
         first, last = min(timestamps), max(timestamps)
@@ -44,7 +50,7 @@ def test_every_esl_date_inside_sdat_range_is_checked(comparisons):
 
 
 def test_meter_readings_match_esl_within_tolerance(comparisons):
-    result, _ = comparisons
+    result, _, _ = comparisons
     deviations = [c for c in result if c.status == "Abweichung"]
     report = "\n".join(
         f"{c.time:%Y-%m-%d %H:%M}Z {c.sensor_id}: Soll {c.esl_value:.4f}, "
@@ -55,6 +61,14 @@ def test_meter_readings_match_esl_within_tolerance(comparisons):
         f"{len(deviations)} Stichtage weichen um >= {ESL_TOLERANCE_KWH} kWh ab "
         f"(Tabelle: {REPORT_FILE}):\n{report}"
     )
+
+
+def test_series_invariant_holds_on_sample_data(comparisons):
+    # NFA-02: pro Sensor eindeutig, aufsteigend, UTC, ohne verlorene Zeitpunkte.
+    _, sdat, esl = comparisons
+    for sensor_id, series in calculate_all_meter_readings(sdat, esl).items():
+        check_series(series)
+        assert len(series) == len({mv.timestamp for mv in sdat[sensor_id]})
 
 
 def test_compare_with_esl_flags_anchor_ok_deviation_and_out_of_range():
