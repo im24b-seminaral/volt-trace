@@ -1,8 +1,8 @@
 import FileUpload from "@/components/FileUpload";
 import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
+import ChartForm from "@/components/ChartForm";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
@@ -48,7 +48,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {Number(get("skipped")) > 0 && <p className="text-sm">{Number(get("skipped"))} Datei(en) übersprungen.</p>}
-    <form action="/" className="space-y-3">
+    <ChartForm chart={
+      !dataset ? <p className="py-24 text-center text-muted-foreground">XML-Dateien oder Ordner wählen.</p>
+        : error ? null
+        : kind === "consumption" ? <ConsumptionChart data={points} /> : <MeterReadingChart data={points} />
+    }>
       <input type="hidden" name="dataset" value={dataset} />
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <div className="space-y-1.5"><Label htmlFor="sensor">Sensor</Label>
@@ -68,11 +72,6 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       <div className="flex gap-2"><Button disabled={!dataset}>Anzeigen</Button>
         {sensor?.hasMeterReadings && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}`}>CSV exportieren</a></Button>}
       </div>
-    </form>
-    <Card><CardContent className="pt-6">
-      {!dataset ? <p className="py-24 text-center text-muted-foreground">XML-Dateien oder Ordner wählen.</p>
-        : error ? null
-        : kind === "consumption" ? <ConsumptionChart data={points} /> : <MeterReadingChart data={points} />}
-    </CardContent></Card>
+    </ChartForm>
   </main>;
 }
