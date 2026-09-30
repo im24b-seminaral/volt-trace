@@ -14,6 +14,17 @@ const timeFormatter = new Intl.DateTimeFormat("de-CH", {
   timeZone: DISPLAY_TZ,
 });
 
+const dateTimeWithOffsetFormatter = new Intl.DateTimeFormat("de-CH", {
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: DISPLAY_TZ,
+  timeZoneName: "shortOffset",
+});
+
 const zurichPartsFormatter = new Intl.DateTimeFormat("en-US", {
   timeZone: DISPLAY_TZ,
   year: "numeric",
@@ -39,7 +50,7 @@ export function formatChartDate(ts: string): string {
 
 export function formatChartDateTime(ts: string): string {
   const date = parseApiTimestamp(ts);
-  return `${dateFormatter.format(date)} ${timeFormatter.format(date)}`;
+  return dateTimeWithOffsetFormatter.format(date);
 }
 
 export function formatChartLabel(ts: string, resolution: "day" | "15min"): string {

@@ -73,9 +73,9 @@ Typische Inhalte pro Datei:
 - `Creation`, `Interval` (Start/Ende), `Resolution` (z. B. 15 Minuten)
 - `Observation` mit `Sequence` und `Volume` (kWh pro Intervall)
 
-Zeitstempel pro Messwert:
+Zeitstempel pro Messwert (FA-05):
 
-`timestamp = StartDateTime + (Sequence − 1) × Resolution` (in Minuten, UTC).
+`timestamp = StartDateTime + Sequence × Resolution` — **Intervallende** in UTC. Verbrauchsfilter in der API: `(Beginn, Ende]` (Grenze Beginn exklusiv, Ende inklusiv).
 
 ### ESL (ESLBillingData)
 
@@ -114,8 +114,8 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 ### Zählerstand berechnen (`calculate_all_meter_readings`)
 
 - Pro Sensor: **frühester** ESL-Stichtag als Referenz (`start_time`, `start_value`).
-- Alle SDAT-Messwerte mit `timestamp >= start_time` werden chronologisch kumuliert:  
-  `Zählerstand += Volume` je Intervall.
+- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.  
+  Intervalle mit Ende nach dem Anker werden vorwärts kumuliert (`Zählerstand += Volume`), davor rückwärts abgezogen.
 - Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
 
 ### Duplikate (SDAT)

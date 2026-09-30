@@ -4,7 +4,7 @@ analysis.py - Datenaggregation, Verknüpfung und Zählerstandsberechnung.
 Zweck und Aufgaben dieser Datei:
 --------------------------------
 1. Datenmodell «Messwert» (NFA-02): Klasse MeterReading mit
-     * timestamp: Zeitstempel in UTC (Intervallbeginn, dient als Schlüssel)
+     * timestamp: Zeitstempel in UTC (Intervallende, dient als Schlüssel)
      * consumption: Verbrauchswert aus sdat im Intervall ab timestamp
      * meter_value: Berechneter absoluter Zählerstand zu diesem Zeitpunkt
 2. Duplikatbehandlung und Sortierung:
@@ -40,9 +40,9 @@ ESL_TOLERANCE_KWH = 0.001  # FA-07 / NFA-04
 @dataclass
 class MeterReading:
     """Messwert (NFA-02): Verbrauch und Zählerstand eines Sensors zu einem Zeitpunkt."""
-    timestamp: datetime   # UTC, Beginn des Intervalls
-    consumption: float    # Verbrauch im Intervall ab timestamp (kWh, aus sdat)
-    meter_value: float    # Zählerstand zum Zeitpunkt timestamp (kWh, berechnet)
+    timestamp: datetime   # UTC, Ende des Intervalls (Beginn, Ende]
+    consumption: float    # Verbrauch im Intervall mit diesem Ende (kWh, aus sdat)
+    meter_value: float    # Zählerstand am Ende des Intervalls (kWh, berechnet)
 
 
 # Zeitreihe eines Sensors. Ein dict garantiert eindeutige Schlüssel und behält die
@@ -68,14 +68,12 @@ def calculate_meter_readings(
     start_value: float,  # absoluter Zählerstand aus dem ESL-File (Anker)
     start_time: datetime,  # Zeitpunkt, zu dem start_value gilt (ESL TimePeriod)
 ) -> MeterSeries:
-    # Konvention: Ein Zählerstand gilt für den Zeitpunkt selbst, also vor dem Verbrauch
-    # des Intervalls, das dort beginnt (sdat-Timestamp = Intervallbeginn).
-    # Stand(t + resolution) = Stand(t) + volume(t)
+    # sdat-Timestamp = Intervallende; ESL-Anker = Zählerstand am Ende des ESL-Intervalls.
     measured_values = remove_duplicates(sorted(measured_values, key=lambda mv: mv.timestamp))
     before = [mv for mv in measured_values if mv.timestamp < start_time]
-    after = [mv for mv in measured_values if mv.timestamp >= start_time]
+    at_anchor = [mv for mv in measured_values if mv.timestamp == start_time]
+    after = [mv for mv in measured_values if mv.timestamp > start_time]
 
-    # Rückwärts ab Anker: das Volumen des eigenen Intervalls abziehen, dann speichern.
     backward: List[MeterReading] = []
     running_total = start_value
     for mv in reversed(before):
@@ -83,14 +81,17 @@ def calculate_meter_readings(
         backward.append(MeterReading(mv.timestamp, mv.volume, running_total))
     backward.reverse()
 
-    # Vorwärts ab Anker: zuerst speichern, dann das Volumen des Intervalls addieren.
+    anchor_readings = [
+        MeterReading(mv.timestamp, mv.volume, start_value) for mv in at_anchor
+    ]
+
     forward: List[MeterReading] = []
     running_total = start_value
     for mv in after:
-        forward.append(MeterReading(mv.timestamp, mv.volume, running_total))
         running_total += mv.volume
+        forward.append(MeterReading(mv.timestamp, mv.volume, running_total))
 
-    series = {reading.timestamp: reading for reading in backward + forward}
+    series = {reading.timestamp: reading for reading in backward + anchor_readings + forward}
     check_series(series)
     return series
 
