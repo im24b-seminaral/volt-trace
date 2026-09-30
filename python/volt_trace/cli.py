@@ -7,13 +7,15 @@ import pickle
 import tempfile
 import xml.etree.ElementTree as ET
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
 from volt_trace.analysis import calculate_all_meter_readings, remove_duplicates, sort_measured_values_by_time
 
 NS_SDAT = "{http://www.strom.ch}"
+LOCAL_TZ = ZoneInfo("Europe/Zurich")
 
 
 def _detect_file_type(path: Path):
@@ -104,14 +106,20 @@ def cmd_sensors(dataset_dir: str):
 
 
 def _aggregate_by_day(points, kind):
+    # Tagesgrenzen auf lokaler Mitternacht (NFA-05), Ergebnis-Timestamps in UTC.
+    # ts ist der Intervallbeginn (siehe sdat.py); bei Umstellung auf Intervallende (FA-05)
+    # muss hier vor der Konvertierung die Resolution abgezogen werden.
     by_day = {}
     for ts, value in sorted(points, key=lambda p: p[0]):
-        day = ts.date()
+        day = ts.astimezone(LOCAL_TZ).date()
         if kind == "consumption":
             by_day[day] = by_day.get(day, 0.0) + value
         else:
             by_day[day] = value
-    return [(datetime.combine(day, datetime.min.time()), value) for day, value in sorted(by_day.items())]
+    return [
+        (datetime.combine(day, datetime.min.time(), tzinfo=LOCAL_TZ).astimezone(timezone.utc), value)
+        for day, value in sorted(by_day.items())
+    ]
 
 
 def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, from_str: str, to_str: str):
