@@ -158,9 +158,25 @@ volt-trace/
 
 ## Voraussetzungen
 
-- **Python** ≥ 3.10 (empfohlen: aktuelle 3.12+ Installation mit `python` im PATH)
-- **Node.js** LTS (für Next.js; npm enthalten)
-- **Windows / macOS / Linux** — die Pfade in `python.ts` unterstützen Windows-venv und Unix-venv
+| Komponente | Version (v1.0) |
+|------------|----------------|
+| **Python** | **3.14+** ([`python/pyproject.toml`](python/pyproject.toml), [`python/.python-version`](python/.python-version)) |
+| **Node.js** | **24.x LTS** ([`nextjs/package.json`](nextjs/package.json) `engines`, [`nextjs/.nvmrc`](nextjs/.nvmrc)) |
+| **npm** | `npm ci` im Ordner `nextjs` |
+
+Plattformen: **Windows / macOS / Linux**. Node **22** oder älter löst bei `npm ci` eine `EBADENGINE`-Warnung aus; für Abnahme ist **Node 24** vorgeschrieben.
+
+### Abhängigkeiten v1.0 (Abgleich Pflichtenheft §5.3)
+
+| Rolle | Pakete |
+|-------|--------|
+| Python Runtime | nur Standardbibliothek im Paket `volt_trace` |
+| Python Dev/Test | `pytest==8.4.2` ([`python/requirements.txt`](python/requirements.txt)) |
+| Frontend Runtime | Next.js, React, Radix UI, Recharts, Lucide, Tailwind (via PostCSS), `clsx`, `class-variance-authority`, `tailwind-merge`, `tw-animate-css` — siehe [`nextjs/package.json`](nextjs/package.json) `dependencies` |
+| Generator/Build | `shadcn` (CLI), TypeScript, `@tailwindcss/postcss`, `tailwindcss` — nur `devDependencies` |
+| Nicht erlaubt / ungenutzt | pandas, openpyxl, FastAPI, uvicorn, `cn`, `requests` (bis FA-12) |
+
+Direkte npm-/pip-Versionen sind **exakt** gepinnt; transitive Abhängigkeiten stehen im Lockfile.
 
 ---
 
@@ -173,6 +189,7 @@ Im **Repository-Root** (`volt-trace`, enthält `python/` und `nextjs/`):
 ```powershell
 python -m venv python\.venv
 .\python\.venv\Scripts\python -m pip install -r python\requirements.txt
+.\python\.venv\Scripts\python -m pip install -e python
 npm --prefix nextjs ci
 ```
 
@@ -181,14 +198,11 @@ npm --prefix nextjs ci
 ```bash
 python3 -m venv python/.venv
 ./python/.venv/bin/pip install -r python/requirements.txt
+./python/.venv/bin/pip install -e python
 npm --prefix nextjs ci
 ```
 
-Optional Paket im Editable-Modus (für Entwicklung):
-
-```bash
-cd python && python -m pip install -e ".[dev]"
-```
+Verifikation und Plattformnachweise: [`docs/ABNAHME_RUNTIME_v1.0.md`](docs/ABNAHME_RUNTIME_v1.0.md).
 
 ---
 

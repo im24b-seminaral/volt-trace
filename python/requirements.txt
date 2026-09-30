@@ -1,1 +1,2 @@
-pytest>=8.0.0
+# volt-trace 1.0.0 — Python >=3.14 (danach: pip install -e .)
+pytest==8.4.2

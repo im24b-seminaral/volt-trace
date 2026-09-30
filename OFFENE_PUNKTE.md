@@ -96,6 +96,7 @@ Nach dem Meeting Antworten hier eintragen und betroffene Punkte oben anpassen.
 
 - [x] **NFA-02 (Variante B):** Klasse `MeterReading(timestamp, consumption, meter_value)` in `analysis.py`, pro Sensor `MeterSeries = dict[datetime, MeterReading]`. `check_series` prüft bei jeder Berechnung: eindeutig, aufsteigend, UTC. `EslMeterReading` nur noch für ESL-Eingabedaten. Tests in `test_analysis.py` und mit echten Daten in `test_esl_vs_sdat.py`.
 - [x] **NFA-01, Abhängigkeiten:** `pandas`, `openpyxl`, `fastapi`, `uvicorn`, `python-multipart` entfernt (unbenutzt). `requirements.txt` enthält nur noch `pytest`.
+- [x] **NFA-01, Runtime-Versionen v1.0:** `requires-python >=3.14`, Paketversion 1.0.0, `pytest==8.4.2` gepinnt; Node 24 (`engines`, `.nvmrc`), exakte npm-Direct-Deps, `cn` entfernt, `shadcn` nur devDependency; README §5.3-Abgleich und [`docs/ABNAHME_RUNTIME_v1.0.md`](docs/ABNAHME_RUNTIME_v1.0.md).
 - [x] **FA-07, Rückwärtsrechnung:** Zählerstände vor dem Anker werden rückwärts berechnet, kein Zeitpunkt geht verloren. Anker = erster ESL-Stichtag im sdat-Zeitraum. Konvention dokumentiert (Stand gilt zu Beginn des Intervalls).
 - [x] **FA-07 / NFA-04, Verifikation:** `compare_with_esl` in `analysis.py` und pytest `test_esl_vs_sdat.py` prüfen jeden ESL-Stichtag gegen die Schranke 0.001 kWh und schreiben die Tabelle nach `python/export/esl_vs_sdat.csv`.
 - [x] **FA-06:** sdat-Files werden nach `rsm:Creation` (bei Gleichstand Dateiname) eingelesen, der zuletzt gelesene Wert gewinnt.
