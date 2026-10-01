@@ -4,7 +4,13 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile, rm } from "node:fs/promises";
 import path from "node:path";
 
-import { datasetPath, runPythonProgress, type PythonProgress } from "@/lib/python";
+import {
+  datasetPath,
+  isRemotePython,
+  remoteImportDataset,
+  runPythonProgress,
+  type PythonProgress,
+} from "@/lib/python";
 import { deleteDataset, getOrCreateSession, registerDataset } from "@/lib/session";
 import type { ImportReport } from "@/lib/types";
 
@@ -44,41 +50,52 @@ export async function importUpload(
   };
   try {
     checkAborted();
-    await mkdir(raw, { recursive: true });
-    const names = new Set<string>();
-    const incoming = [...selectedFiles, ...folderFiles];
-    onProgress({ step: "write", done: 0, total: incoming.length });
-    for (const [index, file] of incoming.entries()) {
+    let result: ImportReport;
+    if (isRemotePython()) {
+      const remoteForm = new FormData();
+      for (const file of selectedFiles) remoteForm.append("files", file, file.name);
+      for (const file of folderFiles) remoteForm.append("folder", file, file.name);
+      for (const folderPath of folderPaths) remoteForm.append("folderPath", folderPath);
+      const reportJson = await remoteImportDataset(id, remoteForm, onProgress, signal);
       checkAborted();
-      const isFolder = index >= selectedFiles.length;
-      const relative = safeUploadPath(isFolder
-        ? folderPaths[index - selectedFiles.length] || file.name
-        : file.name);
-      const original = path.join(isFolder ? "folder" : "files", relative);
-      let name = original;
-      let suffix = 1;
-      while (names.has(name.toLowerCase())) {
-        const parsed = path.parse(original);
-        name = path.join(parsed.dir, `${parsed.name}_${suffix++}${parsed.ext}`);
+      result = JSON.parse(reportJson) as ImportReport;
+    } else {
+      await mkdir(raw, { recursive: true });
+      const names = new Set<string>();
+      const incoming = [...selectedFiles, ...folderFiles];
+      onProgress({ step: "write", done: 0, total: incoming.length });
+      for (const [index, file] of incoming.entries()) {
+        checkAborted();
+        const isFolder = index >= selectedFiles.length;
+        const relative = safeUploadPath(isFolder
+          ? folderPaths[index - selectedFiles.length] || file.name
+          : file.name);
+        const original = path.join(isFolder ? "folder" : "files", relative);
+        let name = original;
+        let suffix = 1;
+        while (names.has(name.toLowerCase())) {
+          const parsed = path.parse(original);
+          name = path.join(parsed.dir, `${parsed.name}_${suffix++}${parsed.ext}`);
+        }
+        names.add(name.toLowerCase());
+        const target = path.join(raw, name);
+        await mkdir(path.dirname(target), { recursive: true });
+        await writeFile(target, Buffer.from(await file.arrayBuffer()));
+        checkAborted();
+        onProgress({ step: "write", done: index + 1, total: incoming.length });
       }
-      names.add(name.toLowerCase());
-      const target = path.join(raw, name);
-      await mkdir(path.dirname(target), { recursive: true });
-      await writeFile(target, Buffer.from(await file.arrayBuffer()));
+      result = JSON.parse(await runPythonProgress(onProgress, "sort-files", [raw, destination], signal)) as ImportReport;
       checkAborted();
-      onProgress({ step: "write", done: index + 1, total: incoming.length });
+      await writeFile(path.join(destination, "import-report.json"), JSON.stringify(result), "utf-8");
     }
-    const result = JSON.parse(await runPythonProgress(onProgress, "sort-files", [raw, destination], signal)) as ImportReport;
-    checkAborted();
     if (result.processedFiles === 0) {
-      await rm(destination, { recursive: true, force: true });
+      await deleteDataset(id);
       return {
         error: result.issues[0]
           ? `Keine XML-Datei eingelesen: ${result.issues[0].file}: ${result.issues[0].reason}`
           : "Keine verwendbaren XML-Dateien gefunden.",
       };
     }
-    await writeFile(path.join(destination, "import-report.json"), JSON.stringify(result), "utf-8");
     checkAborted();
     await registerDataset(sessionId, id);
     uploadOk = true;
@@ -87,7 +104,7 @@ export async function importUpload(
     await rm(destination, { recursive: true, force: true });
     return { error: error instanceof Error ? error.message : "Upload fehlgeschlagen. Bitte erneut versuchen." };
   } finally {
-    await rm(raw, { recursive: true, force: true });
+    if (!isRemotePython()) await rm(raw, { recursive: true, force: true });
     if (!uploadOk) await deleteDataset(id);
   }
   return { datasetId: id };
