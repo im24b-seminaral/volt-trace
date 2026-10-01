@@ -1,5 +1,9 @@
 """Tests für die Tagesaggregation nach lokaler Mitternacht Europe/Zurich (NFA-05 / FA-05)."""
 from datetime import datetime, timedelta, timezone
+import json
+from types import SimpleNamespace
+import pytest
+from volt_trace import cli
 
 from volt_trace.cli import _aggregate_by_day, _consumption_day_bucket
 
@@ -50,3 +54,21 @@ def test_bucket_timestamps_are_utc():
     for ts, _ in _aggregate_by_day(points, "consumption"):
         assert ts.utcoffset() == timedelta(0)
         assert ts.isoformat().endswith("+00:00")
+
+
+@pytest.mark.parametrize("start,hours", [
+    (datetime(2024, 1, 14, 23, tzinfo=timezone.utc), 24),
+    (datetime(2024, 3, 30, 23, tzinfo=timezone.utc), 23),
+    (datetime(2024, 10, 26, 22, tzinfo=timezone.utc), 25),
+])
+def test_date_filter_includes_last_interval_once(start, hours, monkeypatch, capsys):
+    end = start + timedelta(hours=hours)
+    points = [SimpleNamespace(timestamp=t, volume=v) for t, v in
+              _quarter_hour_ends(start, hours * 4 + 2)]
+    monkeypatch.setattr(cli, "_load", lambda _: ({"ID742": points}, {}, []))
+    cli.cmd_series("unused", "ID742", "consumption", "15min", start.isoformat(), end.isoformat())
+    result = json.loads(capsys.readouterr().out)[0]["data"]
+    assert len(result) == hours * 4
+    assert result[-1]["ts"] == end.isoformat()
+    cli.cmd_series("unused", "ID742", "consumption", "day", start.isoformat(), end.isoformat())
+    assert json.loads(capsys.readouterr().out)[0]["data"] == [{"ts": start.isoformat(), "value": hours * 4}]

@@ -3,9 +3,9 @@ import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
 import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
-import ImportReport from "@/components/ImportReport";
 import { Button } from "@/components/ui/button";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
+import { dateRangeError, eligibleSensors, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
 import { runPython } from "@/lib/python";
 import { DatasetAccessError, getOrCreateSession, resolveOwnedDatasetPath } from "@/lib/session";
 import type { Sensor, SensorSeries } from "@/lib/types";
@@ -16,30 +16,27 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const dataset = get("dataset");
   const kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
   let resolution: "day" | "15min" = "day";
-  const from = get("from");
-  const to = get("to");
+  let from = get("from");
+  let to = get("to");
   let sensors: Sensor[] = [];
   let selected = typeof query.sensor === "string" ? [query.sensor] : query.sensor ?? [];
   let series: SensorSeries[] = [];
-  let first = "";
-  let last = "";
   let error = "";
   let directory = "";
   if (dataset) {
     try {
       const sessionId = await getOrCreateSession();
       directory = await resolveOwnedDatasetPath(sessionId, dataset);
-      sensors = JSON.parse(await runPython("sensors", directory));
+      sensors = eligibleSensors(JSON.parse(await runPython("sensors", directory)));
       selected = [...new Set(selected)].filter((id) => sensors.some((sensor) => sensor.sensorId === id));
       if (query.sensor === undefined) selected = sensors.slice(0, 1).map((sensor) => sensor.sensorId);
-      const dates = sensors.filter((sensor) => selected.includes(sensor.sensorId))
-        .flatMap((sensor) => kind === "consumption" ? sensor.consumptionDates : sensor.meterReadingDates).sort();
-      first = dates[0] ?? "";
-      last = dates.at(-1) ?? "";
-      const days = (Date.parse(to || last) - Date.parse(from || first)) / 86400000 + 1;
-      resolution = days > 0 && days <= 7 ? "15min" : "day";
-      if (from && to && from > to) error = "Das Enddatum muss nach dem Startdatum liegen.";
-      if (!selected.length) error = "Bitte mindestens einen Sensor auswählen.";
+      const { first, last } = sensorDateRange(sensors, kind);
+      from = from || first;
+      to = to || last;
+      resolution = rangeResolution(from, to);
+      error = !sensors.length ? "Keine Sensoren mit SDAT- und ESL-Daten vorhanden."
+        : !selected.length ? "Bitte mindestens einen Sensor auswählen."
+        : dateRangeError(from, to, first, last);
       if (selected.length && !error) {
         const fromUtc = from ? localDayBoundsToUtcIso(from).from : "";
         const toUtc = to ? (kind === "consumption" ? localNextDayStartUtcIso(to)
@@ -65,10 +62,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   return <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-8">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h1 className="text-2xl font-semibold">Messdaten</h1>
-      <FileUpload />
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {directory && <ImportReport directory={directory} />}
     <ChartForm chart={
       error ? null
         : kind === "consumption"
@@ -77,7 +72,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     }>
       <ChartFilters key={[dataset, kind, from, to, ...selected].join("|")}
         dataset={dataset} sensors={sensors} selected={selected} kind={kind}
-        from={from} to={to} first={first} last={last} />
+        from={from} to={to} />
     </ChartForm>
     <div className="flex flex-wrap gap-2">
       {sensors.filter((sensor) => selected.includes(sensor.sensorId)).map((sensor) => <div key={sensor.sensorId} className="flex flex-wrap items-center gap-2">
