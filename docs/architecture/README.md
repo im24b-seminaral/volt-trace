@@ -1,15 +1,15 @@
 # Architekturdiagramme (FA-11)
 
-Kanoniche Mermaid-Quellen für das Abgabedatenmodell und die Laufzeitarchitektur von Volt Trace.
+Kanonische Mermaid-Quellen für das Abgabedatenmodell und die Laufzeitarchitektur von Volt Trace.
 
-**Dokumentationsstand (Codeabgleich):** Git-Commit `387b998`  
+**Codeabgleich:** integrierter lokaler Stand `3dcd2d49f1beeecf86fdf2049a4345898d8f35db` (01.10.2026); das Diagramm ist eine noch nicht commitete Dokumentationsänderung auf diesem Stand.
 **Pflichtenheft:** v1.0 (Gruppe 3, Energieagentur Bünzli)
 
 ## Dateien
 
 | Datei | Inhalt |
 |-------|--------|
-| [`class-diagram.mmd`](class-diagram.mmd) | Python-`@dataclass`-Typen in `volt_trace` + Typalias `MeterSeries` |
+| [`class-diagram.mmd`](class-diagram.mmd) | Alle 13 Python-Klassen in `volt_trace` mit Quellenbeziehungen; `MeterSeries` ist ausdrücklich nur ein Typalias |
 | [`component-diagram.mmd`](component-diagram.mmd) | Browser, Next.js, temporäre Sitzungsdaten, Python-CLI als Unterprozess |
 
 Ausführliche Erläuterung der Module: [`PYTHON.md`](../../PYTHON.md) (Kap. 4 und 9).
@@ -34,9 +34,9 @@ Ausführliche Erläuterung der Module: [`PYTHON.md`](../../PYTHON.md) (Kap. 4 un
 | #14 | `PYTHON.md`, `OFFENE_PUNKTE.md`, `docs/architecture/**` |
 | #15 | `docs/acceptance/`, `tests/acceptance/` |
 
-Endgültiger Diagramm-/Codeabgleich erfolgt am **integrierten Abgabecommit**, nicht durch parallele Edits derselben Quellfiles.
+Für den obigen integrierten Stand wurden alle Klassendefinitionen in `python/volt_trace/*.py` mit dem Diagramm abgeglichen. Bei späteren Codeänderungen muss dieser Abgleich erneut erfolgen.
 
 ## Optionale Liefergegenstände (kein Muss in v1.0)
 
-- **FA-12:** HTTP POST JSON an konfigurierbare URL (`export.py` / `requests`) — nicht in der Web-UI.
-- **FA-13:** JSON-Download in der Oberfläche — `to_json_string` existiert; dediziertes CLI-Kommando optional (#12).
+- **FA-12 (geplant, nicht implementiert):** HTTP POST JSON an eine konfigurierbare URL. Es gibt dafür keine Klasse im Diagramm; `export.py` kann JSON erzeugen und in eine Datei schreiben.
+- **FA-13 (geplant, nicht implementiert):** JSON-Download in der Oberfläche. `to_json_string` existiert, ein UI-Download dafür noch nicht.

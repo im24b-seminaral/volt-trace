@@ -7,12 +7,53 @@ classDiagram
         +int sequence
         +float volume
         +int resolution_minutes = 15
+        +Optional~SdatSource~ source
+    }
+
+    class SdatSource {
+        <<sdat.py>>
+        +str file
+        +str document_id
+        +datetime creation
+        +datetime interval_start
+        +Optional~datetime~ interval_end
+        +int resolution_minutes
+        +Optional~str~ resolution_unit
+        +Optional~str~ document_status
+    }
+
+    class SdatDataset {
+        <<sdat.py>>
+        +List~SdatSource~ sources
+        +__init__(values, sources)
     }
 
     class EslMeterReading {
         <<esl.py>>
         +datetime start_time
         +float start_value
+        +Optional~EslSource~ source
+    }
+
+    class EslValueRow {
+        <<esl.py>>
+        +Optional~str~ obis
+        +Optional~str~ value
+        +str status
+    }
+
+    class EslSource {
+        <<esl.py>>
+        +str file
+        +str factory_no
+        +str time_period_end
+        +tuple~EslValueRow~ rows
+    }
+
+    class EslDataset {
+        <<esl.py>>
+        +List~EslSource~ sources
+        +__init__(values, sources)
     }
 
     class MeterReading {
@@ -23,7 +64,7 @@ classDiagram
     }
 
     class MeterSeries {
-        <<typedef analysis.py>>
+        <<typedef>>
         Dict~datetime, MeterReading~
     }
 
@@ -32,14 +73,17 @@ classDiagram
         +str sensor_id
         +datetime time
         +float esl_value
-        +float calculated_value
+        +Optional~float~ calculated_value
         +bool is_anchor
+        +Optional~float~ delta
+        +str status
     }
 
     class DataPoint {
         <<export.py>>
         +datetime time
         +float value
+        +__post_init__()
         +to_unix() int
     }
 
@@ -56,11 +100,30 @@ classDiagram
         +from_points()$ SensorExport
     }
 
-    MeterSeries "1" *-- "0..*" MeterReading : enthält
+    class Progress {
+        <<progress.py>>
+        +bool enabled
+        -float _last
+        +__init__(enabled)
+        +send(step, done, total)
+    }
+
+    note for MeterSeries "Python type alias, not a runtime class"
+    note for SdatDataset "Subclass of dict[str, List[MeasuredValue]]"
+    note for EslDataset "Subclass of dict[str, List[EslMeterReading]]"
+
+    SdatDataset "1" o-- "0..*" MeasuredValue : values by sensor
+    SdatDataset "1" o-- "0..*" SdatSource : sources
+    MeasuredValue --> "0..1" SdatSource : source
+    EslDataset "1" o-- "0..*" EslMeterReading : values by sensor
+    EslDataset "1" o-- "0..*" EslSource : sources
+    EslMeterReading --> "0..1" EslSource : source
+    EslSource "1" *-- "0..*" EslValueRow : rows
+    MeterSeries ..> MeterReading : value type
     MeasuredValue ..> MeterReading : consumption
-    EslMeterReading ..> MeterReading : Anker meter_value
-    MeterReading ..> EslComparison : Vergleich berechnet
+    EslMeterReading ..> MeterReading : anchor meter_value
+    MeterReading ..> EslComparison : comparison
     MeasuredValue ..> DataPoint : consumption_points
-    EslMeterReading ..> DataPoint : meter_points ESL-Ablesung
-    SensorExport "1" *-- "0..*" JsonEntry : enthält
+    EslMeterReading ..> DataPoint : meter_points
+    SensorExport "1" *-- "0..*" JsonEntry : data
     SensorExport ..> DataPoint : from_points

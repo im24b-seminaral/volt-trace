@@ -2,8 +2,8 @@
 
 Dieses Dokument erklärt den Python-Teil von **Volt Trace** (`python/volt_trace/`). Es richtet sich an alle, die den Code verstehen, ändern oder testen wollen – auch ohne Vorwissen über Stromzähler.
 
-**Dokumentationsstand (Codeabgleich):** Git-Commit `387b998` · **Pflichtenheft v1.0**  
-**Architekturdiagramme:** [`docs/architecture/`](../docs/architecture/) (Klassen- und Komponentendiagramm, FA-11)
+**Klassenmodell abgeglichen mit:** Git-Commit `3dcd2d49f1beeecf86fdf2049a4345898d8f35db` (01.10.2026) · **Pflichtenheft v1.0**
+**Architekturdiagramme:** [`docs/architecture/`](docs/architecture/) (Klassen- und Komponentendiagramm, FA-11)
 
 Die Übersicht über das ganze Projekt (Next.js, Installation, Web-Oberfläche) steht im [README im Hauptordner](../README.md). Was noch fehlt oder fehlerhaft ist, steht in [OFFENE_PUNKTE.md](../OFFENE_PUNKTE.md).
 
@@ -211,64 +211,20 @@ m = MeasuredValue(datetime(...), 1, 0.25)   # Konstruktor gibt es automatisch
 print(m.volume)                             # 0.25
 ```
 
-Kanoniche Quelle (FA-11): [`docs/architecture/class-diagram.mmd`](../docs/architecture/class-diagram.mmd). Kurzfassung:
-
-```mermaid
-classDiagram
-    direction LR
-    class MeasuredValue {
-        <<sdat.py>>
-        +datetime timestamp
-        +int sequence
-        +float volume
-        +int resolution_minutes
-    }
-    class EslMeterReading {
-        <<esl.py>>
-        +datetime start_time
-        +float start_value
-    }
-    class MeterReading {
-        <<analysis.py>>
-        +datetime timestamp
-        +float consumption
-        +float meter_value
-    }
-    class MeterSeries {
-        <<typedef>>
-        Dict datetime MeterReading
-    }
-    class EslComparison {
-        <<analysis.py>>
-        +str sensor_id
-        +float esl_value
-        +float calculated_value
-    }
-    class DataPoint {
-        <<export.py>>
-        +datetime time
-        +float value
-    }
-    class SensorExport {
-        <<export.py>>
-        +str sensorId
-        +List JsonEntry data
-    }
-    MeterSeries "1" *-- "0..*" MeterReading
-    MeasuredValue ..> DataPoint : consumption_points
-    EslMeterReading ..> DataPoint : meter_points
-    MeterReading ..> EslComparison : compare_with_esl
-```
+Kanonische Quelle (FA-11): [`docs/architecture/class-diagram.mmd`](docs/architecture/class-diagram.mmd). Das vollständige Diagramm enthält alle Python-Klassen; `MeterSeries` ist ein Typalias und keine Laufzeitklasse.
 
 | Name | Datei | Art | Bedeutung |
 |------|-------|-----|-----------|
 | `MeasuredValue` | `sdat.py` | Klasse | SDAT-Verbrauch pro Intervall (Ende UTC, `resolution_minutes` default 15) |
+| `SdatSource` / `SdatDataset` | `sdat.py` | Klassen | Quelldokument und Messwerte mit Quellenbezug |
 | `EslMeterReading` | `esl.py` | Klasse | ESL-Ablesung (Stichtag UTC, HT+NT-Summe) |
+| `EslValueRow` / `EslSource` / `EslDataset` | `esl.py` | Klassen | Rohwerte, Quelldokument und Ablesungen mit Quellenbezug |
 | `MeterReading` | `analysis.py` | Klasse | Verbrauch + **berechneter** Stand am Intervallende (Verifikation) |
 | `MeterSeries` | `analysis.py` | **Typalias** `Dict[datetime, MeterReading]` | keine eigene Klasse; `check_series` prüft Invariante |
 | `EslComparison` | `analysis.py` | Klasse | Soll-Ist-Zeile je ESL-Stichtag (`status`: Anker/OK/Abweichung/…) |
 | `DataPoint` | `export.py` | Klasse | Export-Zeitpunkt + Wert (UTC-Pflicht in `__post_init__`) |
 | `JsonEntry` / `SensorExport` | `export.py` | Klassen | JSON-Hülle für FA-12/FA-13 (`ts` = Unix-String) |
+| `Progress` | `progress.py` | Klasse | Fortschrittsmeldungen der CLI |
 
 > **Eingabe vs. Anzeige vs. Berechnung:** Web-CSV und Zählerstands-Diagramm nutzen **ESL-Ablesungen** (`meter_points`). `MeterSeries` entsteht nur in `analysis` und dient dem ESL-Abgleich — nicht der UI-Kurve.
 
