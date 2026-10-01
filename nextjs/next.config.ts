@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
     "*": ["**/data/**", "**/.processed-v1.cache"],
   },
   outputFileTracingIncludes: {
-    "*": ["../python/volt_trace/**"],
+    "*": ["./python-runtime/volt_trace/**"],
   },
 };
 

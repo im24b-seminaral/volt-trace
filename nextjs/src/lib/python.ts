@@ -9,9 +9,17 @@ import { PYTHON_TIMEOUT_MS } from "@/lib/constants";
 import { datasetPath, getDataRoot } from "@/lib/runtime-data";
 
 const run = promisify(execFile);
-const pythonDir = process.env.VOLT_TRACE_PYTHON_DIR
-  ? path.resolve(process.cwd(), process.env.VOLT_TRACE_PYTHON_DIR)
-  : path.resolve(process.cwd(), "../python");
+
+function resolvePythonDir(): string {
+  if (process.env.VOLT_TRACE_PYTHON_DIR) {
+    return path.resolve(process.cwd(), process.env.VOLT_TRACE_PYTHON_DIR);
+  }
+  const vendored = path.join(process.cwd(), "python-runtime");
+  if (existsSync(path.join(vendored, "volt_trace"))) return vendored;
+  return path.resolve(process.cwd(), "../python");
+}
+
+const pythonDir = resolvePythonDir();
 /** @deprecated Verwende getDataRoot(); Laufzeitdaten liegen nicht mehr unter nextjs/data. */
 export const dataDir = getDataRoot();
 const venv = path.join(pythonDir, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");

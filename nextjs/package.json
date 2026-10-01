@@ -7,7 +7,7 @@
     },
     "scripts": {
         "dev": "next dev -H 127.0.0.1",
-        "build": "next build",
+        "build": "node scripts/prepare-python.mjs && next build",
         "start": "next start -H 127.0.0.1",
         "typecheck": "tsc --noEmit",
         "test": "tsx --test src/lib/session-store.test.ts"
