@@ -39,4 +39,4 @@ Für den obigen integrierten Stand wurden alle Klassendefinitionen in `python/vo
 ## Optionale Liefergegenstände (kein Muss in v1.0)
 
 - **FA-12 (geplant, nicht implementiert):** HTTP POST JSON an eine konfigurierbare URL. Es gibt dafür keine Klasse im Diagramm; `export.py` kann JSON erzeugen und in eine Datei schreiben.
-- **FA-13 (geplant, nicht implementiert):** JSON-Download in der Oberfläche. `to_json_string` existiert, ein UI-Download dafür noch nicht.
+- **FA-13:** JSON-Download in der Oberfläche pro Sensor und Exportart über `to_json_string` (`/download/…?format=json`).

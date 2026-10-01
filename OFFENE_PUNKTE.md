@@ -24,7 +24,7 @@ Was laut **Pflichtenheft v1.0** (Gruppe 3, Energieagentur Bünzli) noch fehlt od
 
 - [ ] **FA-08 / FA-09:** Bezug und Einspeisung als getrennte Reihen im selben Diagramm.
 - [ ] **FA-08 / FA-09:** Achsentitel vs. Chart-Titel — Abnahmefrage.
-- [ ] **FA-13:** JSON-Download in der UI (Backend: `to_json_string` in `export.py`; CLI-Kommando optional #12).
+- [x] **FA-13:** JSON-Download in der UI (`/download/…?format=json`, CLI `export <dir> <sensor> <kind> json`).
 
 ## 4. Sicherheit und Datenschutz
 

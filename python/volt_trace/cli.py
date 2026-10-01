@@ -17,7 +17,7 @@ from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
 from volt_trace.analysis import calculate_all_meter_readings
 from volt_trace.export import (KIND_CONSUMPTION, KIND_METER, KINDS, consumption_points,
-                               meter_points, to_csv_string)
+                               meter_points, to_csv_string, to_json_string)
 
 NS_SDAT = "{http://www.strom.ch}"
 LOCAL_TZ = ZoneInfo("Europe/Zurich")
@@ -303,9 +303,9 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
     }]))
 
 
-def cmd_export(dataset_dir: str, sensor_id: str, kind: str):
-    if kind not in KINDS:
-        print(f"Unbekannte Exportart: {kind}", file=sys.stderr)
+def cmd_export(dataset_dir: str, sensor_id: str, kind: str, file_format: str = "csv"):
+    if kind not in KINDS or file_format not in ("csv", "json"):
+        print(f"Unbekannte Exportart: {kind} / {file_format}", file=sys.stderr)
         sys.exit(2)
     sdat_data, esl_data, _skipped = _load(dataset_dir)
     points = (consumption_points(sdat_data) if kind == KIND_CONSUMPTION
@@ -313,7 +313,9 @@ def cmd_export(dataset_dir: str, sensor_id: str, kind: str):
     if not points:
         print(f"Für {sensor_id} liegen keine Daten für den Export '{kind}' vor.", file=sys.stderr)
         sys.exit(1)
-    sys.stdout.buffer.write(to_csv_string(points).encode("utf-8"))
+    # FA-13: JSON im selben Format wie export_json: [{sensorId, data: [{ts, value}]}]
+    text = to_json_string({sensor_id: points}) if file_format == "json" else to_csv_string(points)
+    sys.stdout.buffer.write(text.encode("utf-8"))
 
 
 if __name__ == "__main__":

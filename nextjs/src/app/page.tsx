@@ -3,7 +3,9 @@ import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
 import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
 import { dateRangeError, eligibleSensors, parseResolution, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
 import { runPython } from "@/lib/python";
@@ -76,11 +78,18 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         dataset={dataset} sensors={sensors} selected={selected} kind={kind}
         from={from} to={to} resolution={consumptionResolution} />
     </ChartForm>
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-col items-start gap-2">
       {sensors.filter((sensor) => selected.includes(sensor.sensorId)).map((sensor) => <div key={sensor.sensorId} className="flex flex-wrap items-center gap-2">
         <span className="text-sm">{sensor.label}</span>
-        {sensor.hasConsumption && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=verbrauch`}>Verbrauch (CSV)</a></Button>}
-        {sensor.hasMeterReadings && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=zaehlerstand`}>Zählerstände (CSV)</a></Button>}
+        <Collapsible className="group flex flex-wrap items-center gap-2">
+          <CollapsibleTrigger asChild><Button variant="outline">
+            Export <ChevronRight className="transition-transform group-data-[state=open]:rotate-90" />
+          </Button></CollapsibleTrigger>
+          <CollapsibleContent className="flex flex-wrap gap-2">
+            {sensor.hasConsumption && ["csv", "json"].map((format) => <Button key={format} variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=verbrauch&format=${format}`}>Verbrauch ({format.toUpperCase()})</a></Button>)}
+            {sensor.hasMeterReadings && ["csv", "json"].map((format) => <Button key={format} variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=zaehlerstand&format=${format}`}>Zählerstände ({format.toUpperCase()})</a></Button>)}
+          </CollapsibleContent>
+        </Collapsible>
       </div>)}
     </div>
   </main>;
