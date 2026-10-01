@@ -72,3 +72,16 @@ def test_date_filter_includes_last_interval_once(start, hours, monkeypatch, caps
     assert result[-1]["ts"] == end.isoformat()
     cli.cmd_series("unused", "ID742", "consumption", "day", start.isoformat(), end.isoformat())
     assert json.loads(capsys.readouterr().out)[0]["data"] == [{"ts": start.isoformat(), "value": hours * 4}]
+
+
+def test_meter_readings_ignore_resolution(monkeypatch, capsys):
+    # FA-08/FA-10b: Auflösung ändert ESL-Zählerstände nie (keine Aggregation, keine Zwischenwerte).
+    first = datetime(2024, 1, 14, 23, tzinfo=timezone.utc)
+    readings = [SimpleNamespace(start_time=first + timedelta(hours=h), start_value=1000.0 + h) for h in (0, 1, 30)]
+    monkeypatch.setattr(cli, "_load", lambda _: ({}, {"ID742": readings}, []))
+    outputs = []
+    for resolution in ("day", "15min"):
+        cli.cmd_series("unused", "ID742", "meter-reading", resolution, "", "")
+        outputs.append(json.loads(capsys.readouterr().out)[0]["data"])
+    assert outputs[0] == outputs[1]
+    assert [p["ts"] for p in outputs[0]] == [r.start_time.isoformat() for r in readings]

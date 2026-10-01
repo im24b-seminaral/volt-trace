@@ -6,11 +6,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { datePresets, dateRangeError, presetRange, rangeDays, sensorColor, sensorDateRange } from "@/lib/chart-filters";
+import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange } from "@/lib/chart-filters";
 import type { Sensor } from "@/lib/types";
 
-export default function ChartFilters({ dataset, sensors, selected, kind, from, to }: {
-  dataset: string; sensors: Sensor[]; selected: string[]; kind: string; from: string; to: string;
+export default function ChartFilters({ dataset, sensors, selected, kind, from, to, resolution }: {
+  dataset: string; sensors: Sensor[]; selected: string[]; kind: string; from: string; to: string; resolution: string;
 }) {
   const [chartKind, setChartKind] = useState(kind);
   const { first, last } = sensorDateRange(sensors, chartKind);
@@ -27,6 +27,7 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
   return <>
     <input type="hidden" name="dataset" value={dataset} />
     <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end gap-3">
       <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
         <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
           const next = event.target.value;
@@ -37,6 +38,16 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
           <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
           <NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
         </NativeSelect>
+      </div>
+      {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
+      {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
+        <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
+          <NativeSelectOption value="day">Tag</NativeSelectOption>
+          <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
+            {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
+          </NativeSelectOption>
+        </NativeSelect>
+      </div> : <input type="hidden" name="resolution" value={resolution} />}
       </div>
       <div className="flex flex-wrap items-end justify-end gap-3">
         <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
