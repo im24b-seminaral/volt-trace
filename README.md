@@ -241,11 +241,12 @@ Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.
 
 ### Sitzung und Datenschutz (NFA-11 / NFA-12)
 
-- **Keine Konten:** Zugriff über HttpOnly-Cookie `vt_session` (Session-Cookie, endet mit dem Browser-Tab bzw. Browser-Sitzung).
+- **Keine Konten:** Zugriff über HttpOnly-Cookie `vt_session` (Browser-Session-Cookie).
 - **Eigentümerschaft:** `?dataset=<UUID>` allein reicht nicht — Diagramm und CSV prüfen, ob die UUID zur aktuellen Sitzung gehört (fremde IDs → Fehlermeldung bzw. HTTP 403 beim Export).
 - **Speicherort:** `VOLT_TRACE_DATA_DIR` (optional); sonst `%TEMP%/volt-trace-data` (Windows) bzw. `/tmp/volt-trace-data` (Unix).
-- **Aufräumen:** Fehlgeschlagene Uploads löschen den Dataset-Ordner; abgelaufene Sitzungen (Idle-TTL, Standard 4 h, `SESSION_IDLE_TTL_MS`) werden beim nächsten Request bereinigt (`_sessions/*.json` + zugehörige Datensätze inkl. Cache).
-- **Abnahme (manuell):** Zwei Browser-Profile mit gleicher Dataset-URL → nur Besitzer sieht Daten; nach Cookie-Löschen/TTL keine XML/Cache-Reste unter `VOLT_TRACE_DATA_DIR`; `next build` ohne Tracing-Warnung zu tausenden Dateien im Projektbaum.
+- **Sitzungsende:** „Sitzung beenden und Daten löschen“ entfernt die Sitzungsdatei und alle zugehörigen Datensätze samt Cache sofort. Danach sind Diagramm und CSV-Download für diese Datensätze gesperrt. Ein offener Browser hält die Sitzung alle 30 Sekunden aktiv; nach Schließen aller Tabs endet sie spätestens nach 2 Minuten Inaktivität (`SESSION_IDLE_TTL_MS` konfigurierbar). Das Schließen des Browsers kann der Server nicht zuverlässig sofort erkennen.
+- **Aufräumen:** Ein Server-Timer bereinigt abgelaufene Sitzungen samt XML und Cache alle 30 Sekunden, auch ohne weitere Anfragen. Beim Serverstart wird die Bereinigung erneut ausgeführt; während der Server ausgeschaltet ist, kann er keine Dateien löschen. Abgebrochene oder fehlgeschlagene Uploads entfernen ihre Arbeitsdateien und Datensatzordner. Nach einem erzwungenen Prozessabbruch werden nicht registrierte Arbeitsordner spätestens fünf Minuten nach ihrer letzten Änderung beim nächsten Serverstart bzw. Timerlauf entfernt.
+- **Abnahme (manuell):** Zwei Browser-Profile mit gleicher Dataset-URL → nur Besitzer sieht Daten; nach Sitzungsende oder TTL keine XML/Cache-Reste unter `VOLT_TRACE_DATA_DIR`.
 
 ---
 

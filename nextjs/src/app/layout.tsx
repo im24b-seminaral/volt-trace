@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { Geist } from "next/font/google";
 import Header from "@/components/Header";
+import SessionHeartbeat from "@/components/SessionHeartbeat";
 import { cn } from "@/lib/utils";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
@@ -24,6 +25,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="de-CH" className={cn("font-sans", geist.variable)}>
       <body>
+        <SessionHeartbeat />
         <Header />
         {children}
       </body>
