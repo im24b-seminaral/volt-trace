@@ -10,13 +10,16 @@ import { datasetPath, getDataRoot } from "@/lib/runtime-data";
 
 const run = promisify(execFile);
 
+/** Feste Unterordner von process.cwd() — kein dynamisches path.resolve (Turbopack-Tracing). */
 function resolvePythonDir(): string {
-  if (process.env.VOLT_TRACE_PYTHON_DIR) {
-    return path.resolve(process.cwd(), process.env.VOLT_TRACE_PYTHON_DIR);
+  const root = process.cwd();
+  const vendored = path.join(root, "python-runtime");
+  if (process.env.VERCEL === "1" || existsSync(path.join(vendored, "volt_trace"))) {
+    return vendored;
   }
-  const vendored = path.join(process.cwd(), "python-runtime");
-  if (existsSync(path.join(vendored, "volt_trace"))) return vendored;
-  return path.resolve(process.cwd(), "../python");
+  const sibling = path.join(root, "..", "python");
+  if (existsSync(path.join(sibling, "volt_trace"))) return sibling;
+  return vendored;
 }
 
 const pythonDir = resolvePythonDir();
