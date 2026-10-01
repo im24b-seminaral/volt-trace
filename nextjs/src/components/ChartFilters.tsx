@@ -91,5 +91,6 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
         </Label>;
       })}
     </div>
+    </div>
   </>;
 }
