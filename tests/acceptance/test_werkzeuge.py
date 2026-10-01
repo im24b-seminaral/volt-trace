@@ -77,11 +77,27 @@ def _pruefe(*args):
                           capture_output=True, text=True, encoding="utf-8")
 
 
+ESL_RICHTIG = [(1705273200, "1000.0000"), (1705276800, "1000.8500")]
+VERBRAUCH_RICHTIG = [(1705272300, "0.4000"), (1705273200, "0.6000"), (1705274100, "0.2500"),
+                     (1705275000, "0.3000"), (1705275900, "0.2000"), (1705276800, "0.1000")]   # Intervallende
+
+
 def test_csv_pruefen_akzeptiert_richtige_zaehlerstaende(tmp_path):
-    richtig = _csv(tmp_path, [(1705272300, "999.4000"), (1705273200, "1000.0000"), (1705274100, "1000.2500"),
-                              (1705275000, "1000.5500"), (1705275900, "1000.7500"), (1705276800, "1000.8500")])
+    richtig = _csv(tmp_path, ESL_RICHTIG)
     assert _pruefe("esl", richtig, "--xml", SET1, "--sensor", "ID742").returncode == 0
     assert _pruefe("format", richtig).returncode == 0
+
+
+def test_csv_pruefen_esl_lehnt_berechnete_zwischenstaende_ab(tmp_path):
+    zwischen = _csv(tmp_path, [(1705273200, "1000.0000"), (1705274100, "1000.2500"), (1705275000, "1000.5500"),
+                               (1705275900, "1000.7500"), (1705276800, "1000.8500")])
+    assert _pruefe("esl", zwischen, "--xml", SET1, "--sensor", "ID742").returncode == 1
+
+
+def test_csv_pruefen_esl_lehnt_unvollstaendige_und_doppelte_ab(tmp_path):
+    assert _pruefe("esl", _csv(tmp_path, ESL_RICHTIG[:1]), "--xml", SET1, "--sensor", "ID742").returncode == 1
+    doppelt = _csv(tmp_path, [ESL_RICHTIG[0], *ESL_RICHTIG])
+    assert _pruefe("esl", doppelt, "--xml", SET1, "--sensor", "ID742").returncode == 1
 
 
 def test_csv_pruefen_findet_falschen_zaehlerstand(tmp_path):
@@ -98,8 +114,21 @@ def test_csv_pruefen_findet_kaputte_csv(tmp_path):
 
 
 def test_csv_pruefen_verbrauch(tmp_path):
-    richtig = _csv(tmp_path, [(1705272300, "0.4000"), (1705273200, "0.6000"), (1705274100, "0.2500"),
-                              (1705275000, "0.3000"), (1705275900, "0.2000"), (1705276800, "0.1000")])
+    richtig = _csv(tmp_path, VERBRAUCH_RICHTIG)
     assert _pruefe("verbrauch", richtig, "--xml", SET1, "--sensor", "ID742").returncode == 0
-    alt = _csv(tmp_path, [(1705275900, "0.0000")])                # alte Datei statt Korrektur
+    alt = _csv(tmp_path, [(t, "0.0000" if t == 1705275900 else v) for t, v in VERBRAUCH_RICHTIG])  # alte Datei
     assert _pruefe("verbrauch", alt, "--xml", SET1, "--sensor", "ID742").returncode == 1
+
+
+def test_csv_pruefen_verbrauch_lehnt_abgeschnitten_zusaetzlich_doppelt_ab(tmp_path):
+    for zeilen in (VERBRAUCH_RICHTIG[:3],                                   # abgeschnitten
+                   [*VERBRAUCH_RICHTIG, (1705277700, "0.0000")],            # zusätzlicher Zeitpunkt
+                   [VERBRAUCH_RICHTIG[0], *VERBRAUCH_RICHTIG]):             # Duplikat
+        assert _pruefe("verbrauch", _csv(tmp_path, zeilen), "--xml", SET1, "--sensor", "ID742").returncode == 1
+
+
+def test_csv_pruefen_verbrauch_lehnt_intervallbeginn_ab(tmp_path):
+    beginn = _csv(tmp_path, [(t - 900, v) for t, v in VERBRAUCH_RICHTIG])   # gleiche Werte, 15 min früher
+    ergebnis = _pruefe("verbrauch", beginn, "--xml", SET1, "--sensor", "ID742")
+    assert ergebnis.returncode == 1
+    assert "Intervall**beginn**" in ergebnis.stdout
