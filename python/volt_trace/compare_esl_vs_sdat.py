@@ -23,7 +23,8 @@ def compare_esl_sdat(
     results = []
     for a, b in zip(esl_sorted, esl_sorted[1:]):
         esl_diff = b.start_value - a.start_value
-        sdat_in_range = [mv for mv in messwerte if a.start_time <= mv.timestamp < b.start_time]
+        # SDAT-Zeitstempel bezeichnen das Intervallende: (Beginn, Ende].
+        sdat_in_range = [mv for mv in messwerte if a.start_time < mv.timestamp <= b.start_time]
         sdat_summe = sum(mv.volume for mv in sdat_in_range)
 
         results.append({
