@@ -11,6 +11,7 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
+from volt_trace.progress import Progress
 from volt_trace.quantities import round_kwh
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
@@ -88,6 +89,7 @@ def _extract_archive(archive_path: Path, src: Path, issues: list[dict]) -> int:
 
 
 def cmd_sort_files(src_dir: str, dataset_dir: str):
+    progress = Progress()
     src = Path(src_dir)
     destination = Path(dataset_dir)
     sdat_dir = destination / "sdat"
@@ -103,7 +105,10 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
 
     found = len(issues)
     staged = 0
-    for file_path in sorted(path for path in src.rglob("*") if path.is_file() or path.is_symlink()):
+    candidates = sorted(path for path in src.rglob("*") if path.is_file() or path.is_symlink())
+    progress.send("sort", 0, len(candidates))
+    for sorted_count, file_path in enumerate(candidates, start=1):
+        progress.send("sort", sorted_count, len(candidates))
         relative = file_path.relative_to(src)
         if ((file_path.suffix.lower() == ".zip" and not file_path.is_symlink())
                 or "__MACOSX" in relative.parts
@@ -135,10 +140,11 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
 
     # Files lesen und Fehler sammeln (füllt gleichzeitig den Cache) - NFA-06.
     # Meter-Skips (FA-04) sind erwartet und werden hier nicht als Fehler gemeldet.
-    sdat_data, esl_data, skipped = _load(dataset_dir)
+    sdat_data, esl_data, skipped = _load(dataset_dir, progress)
     issues.extend(skipped)
     failed_staged = sum(issue.get("kind") == "file" for issue in skipped)
     imported = staged - failed_staged
+    progress.send("prepare")
     meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
     findings = _measurement_findings(meter_readings, esl_data)
     report = {"foundFiles": found, "processedFiles": imported,
@@ -163,7 +169,12 @@ def _measurement_findings(meter_readings, esl_data) -> list[str]:
     return []
 
 
-def _load(dataset_dir: str):
+def _count_xml(folder: Path) -> int:
+    return sum(1 for path in folder.rglob("*") if path.is_file() and path.suffix.lower() == ".xml")
+
+
+def _load(dataset_dir: str, progress: Progress | None = None):
+    progress = progress or Progress(enabled=False)
     base = Path(dataset_dir).resolve()
     # Only server-generated caches are read; uploaded archives are extracted before parsing.
     cache = base / ".processed-v3.cache"
@@ -180,13 +191,20 @@ def _load(dataset_dir: str):
         with cache.open("rb") as stream:
             saved_key, data = pickle.load(stream)
         if saved_key == key:
+            # Die Lese-Schritte laufen nicht; die Karte braucht trotzdem einen
+            # Endstand, sonst bleiben sie bis zum Schluss als offen stehen.
+            for step, folder in (("sdat", base / "sdat"), ("esl", base / "esl")):
+                total = _count_xml(folder)
+                progress.send(step, total, total)
             return data
     except (OSError, EOFError, ValueError, TypeError, AttributeError, ImportError, pickle.UnpicklingError):
         pass
 
     skipped = []   # defekte Files und übersprungene Datensätze (NFA-06)
-    sdat_data = load_sdat_folder(base / "sdat", skipped)   # dedupliziert + sortiert (FA-06)
-    esl_data = load_esl_folder(base / "esl", skipped)      # ESL-Stände (HT + NT)
+    sdat_data = load_sdat_folder(base / "sdat", skipped,   # dedupliziert + sortiert (FA-06)
+                                 lambda done, total: progress.send("sdat", done, total))
+    esl_data = load_esl_folder(base / "esl", skipped,      # ESL-Stände (HT + NT)
+                               lambda done, total: progress.send("esl", done, total))
     data = sdat_data, esl_data, skipped
     # Atomic replacement also allows simultaneous requests to finish safely.
     with tempfile.NamedTemporaryFile(dir=base, delete=False) as stream:

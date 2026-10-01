@@ -211,11 +211,15 @@ def parse_sdat_file(file_path: Path, source_path: str | None = None) -> Tuple[da
     return creation, {sensor_id: measured_values}
 
 
-def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None) -> Dict[str, List[MeasuredValue]]:
+def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None,
+                     on_file=None) -> Dict[str, List[MeasuredValue]]:
     eingelesen = []
     sources: List[SdatSource] = []
-    for xml_file in sorted(path for path in folder_path.rglob("*")
-                           if path.is_file() and path.suffix.lower() == ".xml"):
+    xml_files = sorted(path for path in folder_path.rglob("*")
+                       if path.is_file() and path.suffix.lower() == ".xml")
+    for done, xml_file in enumerate(xml_files, start=1):
+        if on_file is not None:
+            on_file(done, len(xml_files))
         source_path = xml_file.relative_to(folder_path).as_posix()
         try:
             creation, messwerte_pro_sensor = parse_sdat_file(xml_file, source_path)

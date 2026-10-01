@@ -169,11 +169,14 @@ def parse_esl_file(file_path: Path, skipped: List[dict] | None = None,
 
     return {sensor_id: values for sensor_id, values in result.items() if values}
 
-def load_esl_folder(folder_path: Path, skipped: List[dict] | None = None):
+def load_esl_folder(folder_path: Path, skipped: List[dict] | None = None, on_file=None):
     all_readings: Dict[str, List[EslMeterReading]] = {}
     sources: List[EslSource] = []
-    for xml_file in sorted(path for path in folder_path.rglob("*")
-                           if path.is_file() and path.suffix.lower() == ".xml"):
+    xml_files = sorted(path for path in folder_path.rglob("*")
+                       if path.is_file() and path.suffix.lower() == ".xml")
+    for done, xml_file in enumerate(xml_files, start=1):
+        if on_file is not None:
+            on_file(done, len(xml_files))
         source_path = xml_file.relative_to(folder_path).as_posix()
         file_skips: List[dict] = []
         invalid_rows: List = []
