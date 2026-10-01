@@ -2,6 +2,9 @@
 
 Dieses Dokument erklärt den Python-Teil von **Volt Trace** (`python/volt_trace/`). Es richtet sich an alle, die den Code verstehen, ändern oder testen wollen – auch ohne Vorwissen über Stromzähler.
 
+**Dokumentationsstand (Codeabgleich):** Git-Commit `387b998` · **Pflichtenheft v1.0**  
+**Architekturdiagramme:** [`docs/architecture/`](../docs/architecture/) (Klassen- und Komponentendiagramm, FA-11)
+
 Die Übersicht über das ganze Projekt (Next.js, Installation, Web-Oberfläche) steht im [README im Hauptordner](../README.md). Was noch fehlt oder fehlerhaft ist, steht in [OFFENE_PUNKTE.md](../OFFENE_PUNKTE.md).
 
 ---
@@ -46,11 +49,17 @@ Der Energieversorger liefert dazu **zwei Arten von Dateien**, beide im XML-Forma
 
 Mit SDAT allein wissen wir nur, wie viel *dazugekommen* ist – aber nicht, wo der Zähler steht. Mit ESL allein kennen wir den Zählerstand nur einmal pro Monat.
 
-Stell dir ein Bankkonto vor: Du kennst den Kontostand vom 1. Januar (ESL) und hast alle Kassenzettel seither (SDAT). Dann kannst du den Kontostand für **jeden beliebigen Moment** ausrechnen: Startwert + alle Beträge bis dahin.
+Stell dir ein Bankkonto vor: Du kennst den Kontostand vom 1. Januar (ESL) und hast alle Kassenzettel seither (SDAT). Daraus kann man **berechnete** Zwischenstände ableiten (`analysis.py`) — das ist die Verifikation gegen ESL, nicht die Quelle der Zählerstands-Anzeige in der Web-Oberfläche.
 
-Genau das macht der Python-Teil:
+### Drei Datenströme (Pflichtenheft v1.0)
 
-> **Zählerstand zu jedem 15-Minuten-Zeitpunkt = ESL-Startwert + Summe aller SDAT-Werte seit diesem Startwert**
+| Strom | Quelle | Verwendung |
+|-------|--------|------------|
+| **1. SDAT-Verbrauch** | `MeasuredValue.volume`, Zeitstempel = **Intervallende** (FA-05) | CLI/Web `series` mit `kind=consumption`; CSV-Export `verbrauch` (FA-10a) |
+| **2. ESL-Zählerstände** | `EslMeterReading` (echte Ablesungen, HT+NT) | CLI/Web `series` mit `kind=meter-reading`; CSV-Export `zaehlerstand` (FA-10b) |
+| **3. Berechnete Serie** | `MeterSeries` aus `calculate_all_meter_readings` | `compare_with_esl`, pytest, Hilfsskripte; **nicht** das Zählerstands-Diagramm der UI |
+
+**Zeit:** Intern durchgängig **UTC** (`datetime` mit `tzinfo`). Die Next.js-Oberfläche zeigt Diagramme in **Europe/Zurich** (siehe README #12). **Rundung:** `float` in der Verarbeitung, Ausgabe/Aggregation über `quantities.round_kwh` mit **4 Nachkommastellen** (NFA-04); ESL-Vergleichstoleranz **0,001 kWh**.
 
 ---
 
@@ -68,23 +77,26 @@ flowchart LR
         EP["esl.py<br/>load_esl_folder"]
     end
 
-    subgraph Rechnen["🧮 Berechnen"]
-        A["analysis.py<br/>calculate_all_meter_readings"]
+    subgraph Verifikation["🧮 Verifikation optional"]
+        A["analysis.py<br/>MeterSeries / compare_with_esl"]
     end
 
     subgraph Ausgabe["📤 Ausgabe"]
-        C["cli.py<br/>JSON für die Web-UI"]
-        X["export.py<br/>CSV / JSON-Dateien"]
+        C["cli.py<br/>series / export / sensors"]
+        X["export.py<br/>CSV / JSON"]
     end
 
-    S --> SP -->|"MeasuredValue"| A
-    E --> EP -->|"EslMeterReading<br/>Startwert"| A
-    A -->|"EslMeterReading<br/>berechnete Stände"| C
+    S --> SP -->|"MeasuredValue"| C
+    E --> EP -->|"EslMeterReading"| C
+    SP --> C
+    EP --> C
+    SP --> A
+    EP --> A
+    C --> X
     A --> X
-    SP -->|"Verbrauch direkt"| C
 ```
 
-Der Ablauf hat also immer drei Schritte: **einlesen → berechnen → ausgeben**.
+Typischer Web-Ablauf: **einlesen → anzeigen/exportieren** (Verbrauch aus SDAT, Zählerstand aus ESL). Die **Berechnung** der `MeterSeries` ist ein separater Pfad für Tests und Abgleich.
 
 ---
 
@@ -96,7 +108,8 @@ python/
 │   ├── __init__.py              Paket-Version
 │   ├── sdat.py                  SDAT-Dateien lesen  → MeasuredValue
 │   ├── esl.py                   ESL-Dateien lesen   → EslMeterReading
-│   ├── analysis.py              Zählerstände berechnen
+│   ├── analysis.py              Zählerstände berechnen / ESL-Abgleich
+│   ├── quantities.py            round_kwh, KWH_DECIMALS (NFA-04)
 │   ├── export.py                CSV- und JSON-Export → DataPoint
 │   ├── cli.py                   Befehle für die Web-Oberfläche (Next.js)
 │   ├── main.py                  Kommandozeilen-Pipeline (Ordner → Dateien)
@@ -198,75 +211,66 @@ m = MeasuredValue(datetime(...), 1, 0.25)   # Konstruktor gibt es automatisch
 print(m.volume)                             # 0.25
 ```
 
+Kanoniche Quelle (FA-11): [`docs/architecture/class-diagram.mmd`](../docs/architecture/class-diagram.mmd). Kurzfassung:
+
 ```mermaid
 classDiagram
     direction LR
-
     class MeasuredValue {
         <<sdat.py>>
         +datetime timestamp
         +int sequence
         +float volume
+        +int resolution_minutes
     }
-
     class EslMeterReading {
         <<esl.py>>
         +datetime start_time
         +float start_value
     }
-
     class MeterReading {
         <<analysis.py>>
         +datetime timestamp
         +float consumption
         +float meter_value
     }
-
     class MeterSeries {
-        <<analysis.py>>
-        dict~datetime, MeterReading~
+        <<typedef>>
+        Dict datetime MeterReading
     }
-
+    class EslComparison {
+        <<analysis.py>>
+        +str sensor_id
+        +float esl_value
+        +float calculated_value
+    }
     class DataPoint {
         <<export.py>>
         +datetime time
         +float value
-        +__post_init__() None
-        +to_unix() int
     }
-
-    class JsonEntry {
-        <<export.py>>
-        +str ts
-        +float value
-    }
-
     class SensorExport {
         <<export.py>>
         +str sensorId
-        +List~JsonEntry~ data
-        +from_points(sensor_id, points)$ SensorExport
+        +List JsonEntry data
     }
-
-    SensorExport "1" *-- "0..*" JsonEntry : enthält
-    SensorExport ..> DataPoint : wird erzeugt aus
-    MeterSeries "1" *-- "0..*" MeterReading : enthält, sortiert
-    MeasuredValue ..> MeterReading : liefert consumption
-    EslMeterReading ..> MeterReading : Anker für meter_value
-    MeterReading ..> DataPoint : wird umgewandelt für Export
+    MeterSeries "1" *-- "0..*" MeterReading
+    MeasuredValue ..> DataPoint : consumption_points
+    EslMeterReading ..> DataPoint : meter_points
+    MeterReading ..> EslComparison : compare_with_esl
 ```
 
-| Klasse | Datei | Bedeutung | Beispiel |
-|--------|-------|-----------|----------|
-| `MeasuredValue` | `sdat.py` | Ein 15-Minuten-Verbrauch aus SDAT | 2024-01-15 08:00 UTC, Sequenz 33, 0.25 kWh |
-| `EslMeterReading` | `esl.py` | Ein abgelesener ESL-Zählerstand (nur Eingabedaten) | 2024-01-14 23:00 UTC, 300.75 kWh |
-| `MeterReading` | `analysis.py` | Messwert (NFA-02): Verbrauch im Intervall und berechneter Zählerstand zum selben Zeitpunkt | 2024-01-15 08:00 UTC, 0.25 kWh, 300.75 kWh |
-| `MeterSeries` | `analysis.py` | Zeitreihe eines Sensors: `dict[datetime, MeterReading]`, eindeutig, aufsteigend, UTC (geprüft von `check_series`) | – |
-| `DataPoint` | `export.py` | Ein Zählerstand, bereit für den Export (prüft Zeitzone) | wie oben |
-| `JsonEntry` | `export.py` | Ein Eintrag im JSON: `{"ts": "...", "value": ...}` | `ts="1705273200"` |
-| `SensorExport` | `export.py` | Alle Einträge eines Sensors im JSON | `sensorId="ID742"` |
+| Name | Datei | Art | Bedeutung |
+|------|-------|-----|-----------|
+| `MeasuredValue` | `sdat.py` | Klasse | SDAT-Verbrauch pro Intervall (Ende UTC, `resolution_minutes` default 15) |
+| `EslMeterReading` | `esl.py` | Klasse | ESL-Ablesung (Stichtag UTC, HT+NT-Summe) |
+| `MeterReading` | `analysis.py` | Klasse | Verbrauch + **berechneter** Stand am Intervallende (Verifikation) |
+| `MeterSeries` | `analysis.py` | **Typalias** `Dict[datetime, MeterReading]` | keine eigene Klasse; `check_series` prüft Invariante |
+| `EslComparison` | `analysis.py` | Klasse | Soll-Ist-Zeile je ESL-Stichtag (`status`: Anker/OK/Abweichung/…) |
+| `DataPoint` | `export.py` | Klasse | Export-Zeitpunkt + Wert (UTC-Pflicht in `__post_init__`) |
+| `JsonEntry` / `SensorExport` | `export.py` | Klassen | JSON-Hülle für FA-12/FA-13 (`ts` = Unix-String) |
 
-> 💡 **Eingabe vs. Ergebnis:** `EslMeterReading` steht nur für die echten ESL-Ablesungen. Die berechneten Zählerstände liefert `analysis.py` als `MeterReading` in einer `MeterSeries`. Ein `dict` statt pandas (NFA-02, Variante B): Schlüssel sind durch das `dict` eindeutig, die Einfügereihenfolge bleibt erhalten, und `check_series` belegt bei jeder Berechnung, dass die Schlüssel aufsteigend und in UTC sind.
+> **Eingabe vs. Anzeige vs. Berechnung:** Web-CSV und Zählerstands-Diagramm nutzen **ESL-Ablesungen** (`meter_points`). `MeterSeries` entsteht nur in `analysis` und dient dem ESL-Abgleich — nicht der UI-Kurve.
 
 Alle Zeitstempel im Paket sind **mit Zeitzone UTC** gespeichert (`datetime` mit `tzinfo`). So gibt es keine Verwechslung zwischen Sommer- und Winterzeit.
 
@@ -666,7 +670,12 @@ Soll-Ist-Vergleich an jedem ESL-Stichtag (FA-07 / NFA-04, Schranke `ESL_TOLERANC
 
 ## 8. `export.py` – CSV und JSON erzeugen
 
-Dieses Modul wandelt berechnete Zählerstände in Dateien um. Es ist so gebaut, dass die Funktionen, die **Text** erzeugen (`to_…`), von den Funktionen getrennt sind, die **Dateien schreiben** (`export_…`). So kann man denselben Text für einen Download, eine Datei oder später einen HTTP-POST verwenden.
+Dieses Modul erzeugt Exporttexte aus `DataPoint`-Listen. **Zwei getrennte Eingänge** (FA-10):
+
+- `consumption_points(sdat_data)` — SDAT-`volume` je Intervallende
+- `meter_points(esl_data)` — ESL-`start_value` je Ablesung (keine rekonstruierte `MeterSeries`)
+
+Dateinamen: `{sensorId}_verbrauch.csv` bzw. `{sensorId}_zaehlerstand.csv` (`KIND_CONSUMPTION` / `KIND_METER`). Funktionen `to_…` (Text) sind von `export_…` (Datei) getrennt — gleicher Text für CLI-Download, Batch oder optionalen HTTP-POST (FA-12, Nice-to-have).
 
 ```mermaid
 flowchart LR
@@ -744,7 +753,9 @@ Sie sortiert die Punkte, wandelt jeden in einen `JsonEntry` um und baut daraus e
 | `to_csv_string(points)` | `str` | CSV-Text für **einen** Sensor. |
 | `to_json_payload(data)` | `list` | Python-Liste im Zielformat, Sensoren alphabetisch. |
 | `to_json_string(data)` | `str` | Dasselbe als JSON-Text mit Einrückung. |
-| `export_csv(data, target_folder)` | `List[Path]` | Schreibt `<Sensor>.csv` pro Sensor, erstellt den Ordner falls nötig. |
+| `consumption_points` / `meter_points` | `Dict[str, List[DataPoint]]` | SDAT- bzw. ESL-Zeitreihen für Export/CLI |
+| `csv_filename(sensor_id, kind)` | `str` | `ID742_verbrauch.csv` / `ID742_zaehlerstand.csv` |
+| `export_csv(data, target_folder, kind)` | `List[Path]` | Eine CSV pro Sensor und Exportart |
 | `export_json(data, target_file)` | `Path` | Schreibt **alle** Sensoren in **eine** Datei. Erwartet einen **Dateipfad**, keinen Ordner. |
 
 #### Details zu `to_csv_string`
@@ -799,15 +810,14 @@ timestamp,value
 
 ```python
 from pathlib import Path
-from volt_trace.export import DataPoint, export_csv, export_json
+from volt_trace.export import KIND_CONSUMPTION, KIND_METER, consumption_points, export_csv, meter_points
+from volt_trace.sdat import load_sdat_folder
+from volt_trace.esl import load_esl_folder
 
-data = {
-    sensor_id: [DataPoint(r.timestamp, r.meter_value) for r in series.values()]
-    for sensor_id, series in meter_readings.items()   # aus calculate_all_meter_readings
-}
-
-export_csv(data, Path("export"))                           # export/ID735.csv, export/ID742.csv
-export_json(data, Path("export") / "meter_readings.json")  # export/meter_readings.json
+sdat = load_sdat_folder(Path("daten/sdat"))
+esl = load_esl_folder(Path("daten/esl"))
+export_csv(consumption_points(sdat), Path("export"), KIND_CONSUMPTION)
+export_csv(meter_points(esl), Path("export"), KIND_METER)
 ```
 
 ---
@@ -829,7 +839,7 @@ Das Ergebnis wird auf **stdout** ausgegeben (JSON oder CSV). Next.js liest diese
 | `sort-files` | `<quellordner> <datensatzordner>` | JSON: `{processedFiles, skippedFiles, issues}` |
 | `sensors` | `<datensatzordner>` | JSON: Liste der Sensoren |
 | `series` | `<datensatzordner> <sensorId> <kind> <resolution> <von> <bis>` | JSON: Zeitreihe |
-| `export` | `<datensatzordner> <sensorId>` | CSV-Text |
+| `export` | `<datensatzordner> <sensorId> <kind>` | CSV-Text (`kind`: `verbrauch` oder `zaehlerstand`) |
 
 ### Konstanten
 
@@ -858,7 +868,7 @@ ElementTree schreibt Namensräume in geschweiften Klammern vor den Tag-Namen. Da
 
 ### `_load(dataset_dir)` – mit Zwischenspeicher (Cache)
 
-Alle SDAT-Dateien einzulesen dauert lange (laut OFFENE_PUNKTE ca. 70 s). Ohne Cache müsste das **bei jedem Klick** neu passieren. Darum speichert `_load` das Ergebnis in der Datei `.processed-v1.cache`.
+Alle SDAT-Dateien einzulesen kann lange dauern (siehe OFFENE_PUNKTE NFA-03). Ohne Cache müsste das **bei jedem Klick** neu passieren. Darum speichert `_load` das Ergebnis in der Datei `.processed-v2.cache` (nur eingelesene SDAT/ESL-Strukturen, **ohne** `calculate_all_meter_readings`).
 
 Die Frage ist: **Wann ist der Cache noch gültig?** Dafür wird ein **Fingerabdruck** berechnet – wie ein Siegel auf einem Brief. Wenn sich irgendetwas ändert, passt das Siegel nicht mehr.
 
@@ -868,9 +878,9 @@ flowchart TD
     B --> C["SHA-256 daraus<br/>= Fingerabdruck 'key'"]
     C --> D{"Cache-Datei lesbar<br/>und saved_key == key?"}
     D -->|ja| E["✅ gespeicherte Daten<br/>zurückgeben"]
-    D -->|"nein / Fehler"| F["Neu berechnen:<br/>load_sdat_folder<br/>sort + remove_duplicates<br/>load_esl_folder<br/>calculate_all_meter_readings"]
+    D -->|"nein / Fehler"| F["Neu laden:<br/>load_sdat_folder<br/>load_esl_folder"]
     F --> G["In temporäre Datei schreiben<br/>pickle.dump"]
-    G --> H["Temporäre Datei<br/>atomar umbenennen<br/>→ .processed-v1.cache"]
+    G --> H["Temporäre Datei<br/>atomar umbenennen<br/>→ .processed-v2.cache"]
     H --> I["Daten zurückgeben"]
 ```
 
@@ -884,21 +894,31 @@ Ein paar Details:
 Rückgabe ist ein Tupel mit vier Teilen:
 
 ```python
-sdat_data, esl_data, meter_readings, skipped = _load(dataset_dir)
+sdat_data, esl_data, skipped = _load(dataset_dir)
 ```
 
 ### `cmd_sensors(dataset_dir)`
 
-Gibt für jeden Sensor aus den SDAT-Daten einen Eintrag aus:
+Gibt die Vereinigung aller Sensor-IDs aus SDAT und ESL aus:
 
 ```json
 [
-  {"sensorId": "ID742", "label": "ID742", "direction": "consumption", "hasMeterReadings": true},
-  {"sensorId": "ID26256", "label": "ID26256", "direction": "other", "hasMeterReadings": false}
+  {
+    "sensorId": "ID742",
+    "label": "ID742",
+    "direction": "consumption",
+    "hasConsumption": true,
+    "hasMeterReadings": true
+  }
 ]
 ```
 
-`hasMeterReadings` ist nur `true`, wenn es für diesen Sensor auch ESL-Daten gibt – sonst kann kein Zählerstand berechnet werden.
+| Feld | Bedeutung |
+|------|-----------|
+| `hasConsumption` | SDAT-Messwerte für diesen Sensor vorhanden |
+| `hasMeterReadings` | ESL-Ablesungen vorhanden (Quelle für Zählerstands-Diagramm und Export `zaehlerstand`) |
+
+Die Web-UI nutzt `hasMeterReadings` für den CSV-Export-Link; die **berechnete** `MeterSeries` wird in `_load` nicht mehr erzeugt.
 
 ### `_aggregate_by_day(points, kind)`
 
@@ -906,8 +926,8 @@ Fasst 15-Minuten-Werte zu **Tageswerten** zusammen. Die Tagesgrenze ist **Mitter
 
 | `kind` | Was pro Tag gespeichert wird | Warum |
 |--------|------------------------------|-------|
-| `"consumption"` | **Summe** aller Werte des Tages | Verbrauch pro Tag = alle Viertelstunden zusammen |
-| sonst (`"meter-reading"`) | **letzter** Wert des Tages | Zählerstand am Tagesende |
+| `"consumption"` | **Summe** aller Werte des Tages (Bucket nach Intervall**ende**, Mitternacht → Vortag) | Verbrauch pro Tag |
+| `"meter-reading"` | *(nicht verwendet)* | ESL-Stichtage werden in `cmd_series` **nicht** tagesaggregiert |
 
 Der Zeitstempel eines Tages ist die lokale Mitternacht, umgerechnet nach UTC:
 
@@ -933,22 +953,22 @@ Liefert die Daten für ein Diagramm.
 ```mermaid
 flowchart TD
     A["_load"] --> B{"kind"}
-    B -->|consumption| C["Punkte aus sdat_data<br/>(timestamp, volume)"]
-    B -->|meter-reading| D["Punkte aus meter_readings<br/>(timestamp, meter_value)"]
-    C --> E["nach von / bis filtern<br/>falls angegeben"]
-    D --> E
+    B -->|consumption| C["sdat_data<br/>timestamp_end, volume"]
+    B -->|meter-reading| D["esl_data<br/>start_time, start_value"]
+    C --> E["Filter von/bis<br/>Verbrauch: (Beginn, Ende]"]
+    D --> E["Filter von/bis<br/>ESL: [von, bis]"]
     E --> F{"resolution"}
-    F -->|day| G["_aggregate_by_day"]
-    F -->|15min| H["nur sortieren"]
-    G --> I["JSON ausgeben:<br/>[{sensorId, data: [{ts, value}]}]"]
+    F -->|day + consumption| G["_aggregate_by_day"]
+    F -->|15min oder ESL| H["sortieren"]
+    G --> I["JSON [{sensorId, data}]"]
     H --> I
 ```
 
-`from_str` und `to_str` sind ISO-Zeiten wie `2024-01-01T00:00:00Z`. Leere Texte bedeuten «keine Grenze». Im Unterschied zum Datei-Export ist `ts` hier ein **ISO-Text** (`"2024-01-14T23:00:00+00:00"`), weil das Diagramm im Browser damit direkt arbeiten kann.
+`from_str` / `to_str`: ISO-UTC. Verbrauch: `timestamp > from` und `timestamp <= to` (FA-05). Zählerstand: `timestamp >= from`. `ts` in JSON ist **ISO-UTC** für die Web-UI (Anzeige Zurich in Next.js).
 
-### `cmd_export(dataset_dir, sensor_id)`
+### `cmd_export(dataset_dir, sensor_id, kind)`
 
-Schreibt die berechneten Zählerstände eines Sensors als CSV direkt auf stdout. Aktuell baut die Funktion das CSV **selbst** mit dem `csv`-Modul – ohne Rundung auf 4 Stellen und ohne `export.py` zu benutzen.
+Ruft `consumption_points` oder `meter_points` auf und gibt `to_csv_string` auf **stdout** aus (4 Nachkommastellen, Unix-`timestamp` in der ersten Spalte). Next.js übergibt `kind` als Query-Parameter am Download (`verbrauch` / `zaehlerstand`).
 
 ### Der Einstiegspunkt
 
@@ -989,7 +1009,8 @@ Die drei Grundschritte in einer Funktion:
 ```python
 sdat_data = load_sdat_folder(sdat_dir)
 esl_data = load_esl_folder(esl_dir)
-return calculate_all_meter_readings(sdat_data, esl_data)
+export_csv(consumption_points(sdat_data), …, KIND_CONSUMPTION)
+export_csv(meter_points(esl_data), …, KIND_METER)
 ```
 
 ### `main()`
@@ -1013,7 +1034,7 @@ sequenceDiagram
     Note over X: ❌ erwartet Dateipfad,<br/>bekommt Ordner
 ```
 
-`main.py` wandelt jede `MeterReading` in einen `DataPoint` um und schreibt `ID735.csv`, `ID742.csv` und `meter_readings.json` in den Ausgabeordner.
+`main.py` schreibt getrennte CSV-Dateien `ID735_verbrauch.csv`, `ID742_zaehlerstand.csv` usw. (je nach vorhandenen Sensoren) — ohne `calculate_all_meter_readings`.
 
 ---
 
@@ -1089,25 +1110,25 @@ cd python
 python -m pytest -q
 ```
 
-| Datei | Was wird getestet | Status |
-|-------|-------------------|--------|
-| `tests/test_cli_cache.py` | Cache in `_load`: wird wiederverwendet, bei Dateiänderung neu gebaut, kaputter Cache wird ersetzt | ✅ läuft |
-| `tests/test_daily_aggregation.py` | `_aggregate_by_day`: Winter, Sommer, 92- und 100-Werte-Tage, UTC-Zeitstempel | ✅ läuft |
-| `tests/test_esl.py` | OBIS-Gruppierung, HT+NT-Summe, UTC-Umrechnung, fehlendes Register | ❌ bricht beim Import ab |
-| `tests/test_analysis.py` | – (nur ein Docstring mit geplanten Tests) | ⚪ leer |
+| Datei | Inhalt (Quelle: Dateiname + pytest) |
+|-------|-------------------------------------|
+| `tests/test_analysis.py` | `calculate_meter_readings`, NFA-02 `check_series`, Anker-Logik |
+| `tests/test_cli_cache.py` | `_load`-Cache (Mock/monkeypatch) |
+| `tests/test_daily_aggregation.py` | `_aggregate_by_day`, DST 92/100, Intervallende |
+| `tests/test_esl.py` | OBIS-Gruppierung, HT+NT, UTC, Parser-Fixtures |
+| `tests/test_esl_vs_sdat.py` | `compare_with_esl`, Toleranz 0,001 kWh; **skip**, wenn `XML-Files/SDAT-Files` fehlt |
+| `tests/test_quantities.py` | `round_kwh` / Summen (NFA-04) |
+| `tests/test_sdat_timestamps.py` | FA-05: 96/92/100/2976, Unit, Sequenz |
 
-`test_cli_cache.py` benutzt **`monkeypatch`** und **`Mock`**: Die echten Lade-Funktionen werden durch Attrappen ersetzt, die zählen, wie oft sie aufgerufen wurden. So kann der Test prüfen, dass nach dem ersten Aufruf der Cache benutzt wird (`call_count == 1`), ohne echte XML-Dateien zu brauchen.
+Es gibt **kein** dediziertes `test_export.py`; FA-10 wird indirekt über `export.py`-Nutzung in `cli`/`main` abgedeckt — formale CSV-Contract-Tests sind offen (siehe OFFENE_PUNKTE).
 
-### Warum `test_esl.py` fehlschlägt
-
-1. Der Test importiert die **alten** deutschen Funktionsnamen `_effektiver_zaehlerstand_pro_gruppe` und `_obis_gruppe`. Im Code heissen sie jetzt `_total_readings_by_obis_group` und `_obis_group`.
-2. Auch nach der Umbenennung würden die `parse_esl_file`-Tests scheitern: Die Fixtures in `tests/fixtures/` haben **kein** `<Meter>`-Element, `parse_esl_file` sucht aber genau danach. Die Fixtures müssen darum ein `<Meter factoryNo="…">` um die `<TimePeriod>` bekommen.
+Der Status «grün» gilt nur nach lokalem `pytest` auf dem referenzierten Commit; CI-Ergebnisse werden in #15 (`docs/acceptance/`) geführt.
 
 ---
 
 ## 13. Installation und Aufruf
 
-Voraussetzung: **Python ≥ 3.10** (wegen der Schreibweise `str | None`).
+Voraussetzung: **Python ≥ 3.14** (`pyproject.toml`, Runtime v1.0).
 
 ```bash
 # im Hauptordner des Repositorys
@@ -1135,7 +1156,8 @@ cd python
 python -m volt_trace.cli sort-files <quelle> <datensatz>
 python -m volt_trace.cli sensors <datensatz>
 python -m volt_trace.cli series <datensatz> ID742 meter-reading day 2024-01-01T00:00:00Z 2024-02-01T00:00:00Z
-python -m volt_trace.cli export <datensatz> ID742 > ID742.csv
+python -m volt_trace.cli export <datensatz> ID742 verbrauch > ID742_verbrauch.csv
+python -m volt_trace.cli export <datensatz> ID742 zaehlerstand > ID742_zaehlerstand.csv
 
 # Batch-Pipeline (siehe Hinweis in Abschnitt 10)
 python -m volt_trace.main --esl-dir … --sdat-dir … --output-dir export
@@ -1173,10 +1195,11 @@ Die vollständige Liste mit Prioritäten steht in [OFFENE_PUNKTE.md](../OFFENE_P
 
 | Stelle | Was passiert | Folge |
 |--------|--------------|-------|
-| `analysis`, alle Summen | Rechnen mit `float` | Rundung zentral auf 4 Stellen (`quantities.py`); Rest-Rundungsfehler möglich (NFA-04) |
-| `cli.cmd_export` | baut CSV selbst | Keine Rundung auf 4 Stellen, `export.py` wird nicht benutzt |
-| `calc_values.py` | Code auf Modulebene | Import startet sofort die ganze Berechnung |
-| `__init__.py` | Docstring verspricht zentrale Exporte | Es wird nur `__version__` definiert |
+| Beispieldatensatz ESL vs. SDAT | Summe SDAT ≈ **3×** ESL-Differenz in vielen Intervallen | Keine automatische Skalierung; Klärung F14 — `compare_with_esl` kann am Datensatz scheitern |
+| `analysis`, Summen | `float` + `round_kwh` | NFA-04: Restfehler möglich; keine Gewichtung FA-07 |
+| `calc_values.py` | Code auf Modulebene | Import startet Berechnung |
+| NFA-03 | Erstes Einlesen langsam | Cache hilft Folgeaufrufen, nicht den ersten Lauf |
+| NFA-01 OO | Funktionen + Dataclasses | Kein separates Service-Klassenmodell — siehe #12 falls gewünscht |
 
 ---
 
