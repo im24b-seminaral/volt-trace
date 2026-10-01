@@ -4,6 +4,8 @@ import shutil
 import hashlib
 import pickle
 import tempfile
+import zipfile
+import stat
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -12,6 +14,7 @@ from zoneinfo import ZoneInfo
 from volt_trace.quantities import round_kwh
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
 from volt_trace.esl import load_esl_folder
+from volt_trace.analysis import calculate_all_meter_readings
 from volt_trace.export import (KIND_CONSUMPTION, KIND_METER, KINDS, consumption_points,
                                meter_points, to_csv_string)
 
@@ -24,49 +27,149 @@ def _detect_file_type(path: Path):
     try:
         root = ET.parse(path).getroot()
     except ET.ParseError:
-        return None
+        return None, "Kein gültiges XML"
     if root.tag.startswith(NS_SDAT):
-        return "sdat"
+        return "sdat", None
     if root.tag == "ESLBillingData":
-        return "esl"
-    return None
+        return "esl", None
+    return None, "Unbekanntes XML-Format"
+
+
+def _archive_member_parts(name: str) -> tuple[str, ...]:
+    normalized = name.replace("\\", "/")
+    parts = tuple(normalized.split("/"))
+    if (normalized.startswith("/") or any(part in ("", ".", "..") or ":" in part for part in parts)
+            or "\x00" in normalized):
+        raise ValueError("Unsicherer Pfad im ZIP")
+    return parts
+
+
+def _extract_archive(archive_path: Path, src: Path, issues: list[dict]) -> int:
+    extracted = 0
+    issue_count = len(issues)
+    target_root = src / "_extracted" / archive_path.relative_to(src).with_suffix("")
+    try:
+        with zipfile.ZipFile(archive_path) as archive:
+            if len(archive.infolist()) > 20_000:
+                raise ValueError("ZIP enthält zu viele Einträge")
+            total_size = 0
+            for info in archive.infolist():
+                if info.is_dir() or "__MACOSX" in info.filename or info.filename.endswith(".DS_Store"):
+                    continue
+                label = f"{archive_path.relative_to(src).as_posix()}!/{info.filename}"
+                try:
+                    parts = _archive_member_parts(info.filename)
+                    if stat.S_ISLNK(info.external_attr >> 16):
+                        raise ValueError("Symbolischer Link im ZIP")
+                    total_size += info.file_size
+                    if info.file_size > 256 * 1024 * 1024 or total_size > 1024 * 1024 * 1024:
+                        raise ValueError("ZIP überschreitet die Grössenbegrenzung")
+                    target = target_root.joinpath(*parts)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    if target.exists():
+                        raise ValueError("Doppelter Pfad im ZIP")
+                    try:
+                        with archive.open(info) as source, target.open("xb") as output:
+                            shutil.copyfileobj(source, output, length=1024 * 1024)
+                    except Exception:
+                        target.unlink(missing_ok=True)
+                        raise
+                    extracted += 1
+                except (ValueError, RuntimeError, NotImplementedError, OSError, zipfile.BadZipFile) as error:
+                    issues.append({"file": label, "kind": "file", "reason": str(error), "skippedRecords": 0})
+    except (ValueError, RuntimeError, NotImplementedError, OSError, zipfile.BadZipFile) as error:
+        issues.append({"file": archive_path.relative_to(src).as_posix(), "kind": "file",
+                       "reason": f"Ungültiges ZIP: {error}", "skippedRecords": 0})
+    else:
+        if extracted == 0 and len(issues) == issue_count:
+            issues.append({"file": archive_path.relative_to(src).as_posix(), "kind": "file",
+                           "reason": "ZIP enthält keine verwendbaren Dateien", "skippedRecords": 0})
+    return extracted
 
 
 def cmd_sort_files(src_dir: str, dataset_dir: str):
     src = Path(src_dir)
-    sdat_dir = Path(dataset_dir) / "sdat"
-    esl_dir = Path(dataset_dir) / "esl"
+    destination = Path(dataset_dir)
+    sdat_dir = destination / "sdat"
+    esl_dir = destination / "esl"
     sdat_dir.mkdir(parents=True, exist_ok=True)
     esl_dir.mkdir(parents=True, exist_ok=True)
 
-    processed = 0
-    issues = []
-    for f in src.glob("*"):
-        if not f.is_file():
+    issues: list[dict] = []
+    archives = sorted(path for path in src.rglob("*")
+                      if path.is_file() and not path.is_symlink() and path.suffix.lower() == ".zip")
+    for archive_path in archives:
+        _extract_archive(archive_path, src, issues)
+
+    found = len(issues)
+    staged = 0
+    for file_path in sorted(path for path in src.rglob("*") if path.is_file() or path.is_symlink()):
+        relative = file_path.relative_to(src)
+        if ((file_path.suffix.lower() == ".zip" and not file_path.is_symlink())
+                or "__MACOSX" in relative.parts
+                or file_path.name.startswith("._") or file_path.name == ".DS_Store"):
             continue
-        file_type = _detect_file_type(f)
-        if file_type == "sdat":
-            shutil.move(str(f), sdat_dir / f.name)
-            processed += 1
-        elif file_type == "esl":
-            shutil.move(str(f), esl_dir / f.name)
-            processed += 1
-        else:
-            issues.append({"file": f.name, "reason": "unbekanntes Format", "skippedRecords": 0})
+        found += 1
+        label = relative.as_posix()
+        if file_path.is_symlink():
+            issues.append({"file": label, "kind": "file", "reason": "Symbolischer Link nicht erlaubt",
+                           "skippedRecords": 0})
+            continue
+        if file_path.suffix.lower() != ".xml":
+            issues.append({"file": label, "kind": "file", "reason": "Keine XML-Datei",
+                           "skippedRecords": 0})
+            continue
+        file_type, error = _detect_file_type(file_path)
+        if file_type is None:
+            issues.append({"file": label, "kind": "file", "reason": error,
+                           "skippedRecords": 0})
+            continue
+        target = destination / file_type / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if target.exists():
+            issues.append({"file": label, "kind": "file", "reason": "Doppelter Dateipfad",
+                           "skippedRecords": 0})
+            continue
+        shutil.move(str(file_path), target)
+        staged += 1
 
     # Files lesen und Fehler sammeln (füllt gleichzeitig den Cache) - NFA-06.
     # Meter-Skips (FA-04) sind erwartet und werden hier nicht als Fehler gemeldet.
-    skipped = _load(dataset_dir)[2]
-    issues += [entry for entry in skipped if "meter" not in entry]
+    sdat_data, esl_data, skipped = _load(dataset_dir)
+    issues.extend(skipped)
+    failed_staged = sum(issue.get("kind") == "file" for issue in skipped)
+    imported = staged - failed_staged
+    meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
+    findings = _measurement_findings(meter_readings, esl_data)
+    report = {"foundFiles": found, "processedFiles": imported,
+              "skippedFiles": found - imported,
+              "skippedRecords": sum(issue.get("skippedRecords", 0) for issue in issues),
+              "issues": issues, "findings": findings}
+    print(json.dumps(report))
 
-    print(json.dumps({"processedFiles": processed, "skippedFiles": len(issues), "issues": issues}))
+
+def _measurement_findings(meter_readings, esl_data) -> list[str]:
+    for sensor_id, series in meter_readings.items():
+        dates = sorted(esl_data.get(sensor_id, []), key=lambda reading: reading.start_time)
+        for first, last in zip(dates, dates[1:]):
+            if first.start_time not in series or last.start_time not in series:
+                continue
+            measured_change = last.start_value - first.start_value
+            calculated_change = (series[last.start_time].meter_value
+                                 - series[first.start_time].meter_value)
+            if measured_change and abs(calculated_change / measured_change - 3) < 0.05:
+                return ["Befund: SDAT-Verbrauch und ESL-Zählerdifferenz weichen bei der "
+                        "Testanlage um etwa Faktor 3 ab. Gültige Werte wurden unverändert übernommen."]
+    return []
 
 
 def _load(dataset_dir: str):
     base = Path(dataset_dir).resolve()
-    # Only server-generated caches are read; uploads are restricted to XML.
-    cache = base / ".processed-v2.cache"
-    sources = sorted([*base.glob("sdat/*.xml"), *base.glob("esl/*.xml"),
+    # Only server-generated caches are read; uploaded archives are extracted before parsing.
+    cache = base / ".processed-v3.cache"
+    sources = sorted([*(path for folder in (base / "sdat", base / "esl")
+                       for path in folder.rglob("*")
+                       if path.is_file() and path.suffix.lower() == ".xml"),
                       *Path(__file__).parent.glob("*.py")])
     fingerprint = hashlib.sha256()
     for source in sources:
@@ -96,6 +199,11 @@ def _load(dataset_dir: str):
     return data
 
 
+def _date_range(days):
+    dates = list(days)
+    return [str(min(dates)), str(max(dates))] if dates else []
+
+
 def cmd_sensors(dataset_dir: str):
     sdat_data, esl_data, _skipped = _load(dataset_dir)
     sensor_ids = sorted(set(sdat_data) | set(esl_data))
@@ -106,6 +214,8 @@ def cmd_sensors(dataset_dir: str):
             "direction": SENSOR_DIRECTIONS.get(sensor_id, "other"),
             "hasConsumption": sensor_id in sdat_data,
             "hasMeterReadings": sensor_id in esl_data,
+            "consumptionDates": _date_range(_consumption_day_bucket(v.timestamp) for v in sdat_data.get(sensor_id, [])),
+            "meterReadingDates": _date_range(r.start_time.astimezone(LOCAL_TZ).date() for r in esl_data.get(sensor_id, [])),
         }
         for sensor_id in sensor_ids
     ]

@@ -10,7 +10,7 @@
         "build": "next build",
         "start": "next start -H 127.0.0.1",
         "typecheck": "tsc --noEmit",
-        "test": "tsx --test src/lib/session-store.test.ts"
+        "test": "tsx --test src/lib/session-store.test.ts tests/charts/charts.test.tsx tests/charts/datetime.test.ts"
     },
     "dependencies": {
         "class-variance-authority": "0.7.1",

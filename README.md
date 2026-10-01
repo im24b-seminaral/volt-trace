@@ -103,30 +103,30 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 
 ### SDAT laden (`load_sdat_folder`)
 
-- Alle `*.xml` in einem Ordner einlesen.
-- Pro Datei Sensor-ID extrahieren; aktuell werden nur **ID735** und **ID742** verarbeitet (`ALLOWED_SENSOR_IDS` in `sdat.py`).
+- XML-Dateien auch in Unterordnern einlesen. Beim Web-Upload werden ZIP-Archive sicher entpackt.
+- Pro Datei Sensor-ID aus `DocumentID` extrahieren; auch weitere Sensoren werden eingelesen.
 - Messwerte gleicher Sensoren aus mehreren Dateien werden zusammengeführt.
+- Dateiquelle, `Creation`, Intervall, Auflösung und Dokumentstatus bleiben im Datenmodell erhalten.
 
 ### ESL laden (`load_esl_folder`)
 
-- Alle ESL-XMLs einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln.
+- ESL-XMLs auch in Unterordnern einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln. Meter, OBIS-Werte und Status bleiben als Herkunftsdaten erhalten.
 - Doppelte Stichtags-Zeitstempel pro Sensor werden entfernt (`remove_esl_duplicates`).
 
 ### Zählerstand berechnen (`calculate_all_meter_readings`)
 
-- Pro Sensor: **frühester** ESL-Stichtag als Referenz (`start_time`, `start_value`).
-- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.  
+- Pro Sensor: erster ESL-Stichtag innerhalb des SDAT-Zeitraums als Referenz; falls keiner darin liegt, der früheste ESL-Stichtag.
+- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.
   Intervalle mit Ende nach dem Anker werden vorwärts kumuliert (`Zählerstand += Volume`), davor rückwärts abgezogen.
 - Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
 
 ### Duplikate (SDAT)
 
-Innerhalb einer Datei und nach dem Zusammenführen: gleicher Zeitstempel → es bleibt der **erste** Eintrag (`remove_duplicates`).  
-Eine feinere Regel „alle Files nach `Creation` sortieren, letzter gewinnt“ ist in der Spezifikation beschrieben, aber im Code noch nicht vollständig umgesetzt — bei grossen Produktivdatensätzen kann das relevant sein.
+Innerhalb einer Datei müssen die Sequenznummern vollständig und eindeutig sein. Über mehrere Dateien hinweg gewinnt bei gleichem Zeitstempel der Wert aus der zuletzt erstellten Datei (`Creation`); bei gleichem `Creation` entscheidet der relative Dateipfad.
 
 ### Rückwärtsrechnung vor dem ESL-Anker
 
-Die aktuelle Implementierung rechnet **vorwärts** ab dem ersten ESL-Stichtag. Punkte **vor** diesem Stichtag werden nicht aus dem Anker zurückgerechnet.
+Die Implementierung rechnet Werte vor dem ESL-Anker rückwärts und Werte danach vorwärts.
 
 ---
 
@@ -223,8 +223,8 @@ Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`
 
 ### Bedienung
 
-1. **XML-Dateien wählen** oder **Ordner wählen** (nur `.xml`).
-2. Unbekannte Dateien werden beim Sortieren übersprungen (Hinweis in der UI).
+1. **XML-/ZIP-Dateien wählen** oder **Ordner wählen** (inklusive Unterordnern).
+2. Der Importbericht zeigt gefundene, eingelesene und übersprungene Dateien sowie übersprungene Datensätze mit Gründen. Ungültige ZIPs und XMLs werden gemeldet; gültige Dateien werden weiter verarbeitet.
 3. **Sensor**, **Zeitraum** (Kalendertage in **Europe/Zurich**), **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
    - **Verbrauch** — SDAT-`Volume` (bei Tag-Ansicht Summe pro Kalendertag).
    - **Zählerstand** — kumulierte absolute Werte aus ESL-Anker + SDAT.

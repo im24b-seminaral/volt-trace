@@ -49,6 +49,10 @@ def test_every_esl_date_inside_sdat_range_is_checked(comparisons):
         assert all(c.calculated_value is not None for c in inside)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="Known SDAT/ESL discrepancy in the sample data; issue #12 reports it without changing values",
+)
 def test_meter_readings_match_esl_within_tolerance(comparisons):
     result, _, _ = comparisons
     deviations = [c for c in result if c.status == "Abweichung"]

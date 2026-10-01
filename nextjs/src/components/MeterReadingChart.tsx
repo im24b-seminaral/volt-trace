@@ -1,11 +1,11 @@
 import EnergyChart from "@/components/EnergyChart";
-import type { DataPoint } from "@/lib/types";
+import type { SensorSeries } from "@/lib/types";
 
 export default function MeterReadingChart({
   data,
   resolution,
 }: {
-  data: DataPoint[];
+  data: SensorSeries[];
   resolution: "day" | "15min";
 }) {
   return <EnergyChart data={data} kind="line" resolution={resolution} />;

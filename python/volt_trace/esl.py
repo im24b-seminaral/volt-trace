@@ -62,6 +62,28 @@ def _total_readings_by_obis_group(values: Dict[str, float]) -> Dict[str, float]:
 class EslMeterReading:
     start_time: datetime   # Ablesezeitpunkt in UTC
     start_value: float     # absoluter Zählerstand in kWh (HT + NT)
+    source: "EslSource | None" = None
+
+
+@dataclass(frozen=True)
+class EslValueRow:
+    obis: str | None
+    value: str | None
+    status: str
+
+
+@dataclass(frozen=True)
+class EslSource:
+    file: str
+    factory_no: str
+    time_period_end: str
+    rows: tuple[EslValueRow, ...]
+
+
+class EslDataset(dict[str, List[EslMeterReading]]):
+    def __init__(self, values: Dict[str, List[EslMeterReading]], sources: List[EslSource]):
+        super().__init__(values)
+        self.sources = sources
 
 
 def _get_attribute(element, name) -> str:
@@ -78,12 +100,20 @@ def _parse_start_time(value) -> datetime:
 
 VALID_STATUS = "V"
 
-def _parse_value_rows(time_period, invalid_rows: List | None = None) -> Dict[str, float]:
+def _parse_value_rows(time_period, invalid_rows: List | None = None,
+                      source_rows: List[EslValueRow] | None = None,
+                      file_name: str = "", factory_no: str = "") -> Dict[str, float]:
     values: Dict[str, float] = {}
     for row in time_period.iter("ValueRow"):
-        if row.get("status", VALID_STATUS) != VALID_STATUS:
+        status = row.get("status", VALID_STATUS)
+        if source_rows is not None:
+            source_rows.append(EslValueRow(row.get("obis"), row.get("value"), status))
+        if status != VALID_STATUS:
             if invalid_rows is not None:
-                invalid_rows.append(row)
+                invalid_rows.append({"file": file_name, "meter": factory_no,
+                                     "kind": "record", "obis": row.get("obis"),
+                                     "status": status, "reason": f'ValueRow mit status "{status}"',
+                                     "skippedRecords": 1})
             continue
         values[_get_attribute(row, "obis")] = float(_get_attribute(row, "value"))
     return values
@@ -97,8 +127,11 @@ def remove_esl_duplicates(esl_readings: List[EslMeterReading]) -> List[EslMeterR
             seen_timestamps.add(reading.start_time)
     return unique
 
-def parse_esl_file(file_path: Path, skipped: List[dict] | None = None, invalid_rows: List | None = None):
+def parse_esl_file(file_path: Path, skipped: List[dict] | None = None,
+                   invalid_rows: List | None = None, source_path: str | None = None,
+                   sources: List[EslSource] | None = None):
     root = ET.parse(file_path).getroot()
+    source_path = source_path or file_path.name
     result: Dict[str, List[EslMeterReading]] = {
         sensor_id: [] for sensor_id in OBIS_GROUP_TO_SENSOR.values()
     }
@@ -110,8 +143,14 @@ def parse_esl_file(file_path: Path, skipped: List[dict] | None = None, invalid_r
         reason = "keine vollständigen OBIS-Paare (Hoch- und Niedertarif)"
 
         for time_period in meter.iter("TimePeriod"):
-            start_time = _parse_start_time(_get_attribute(time_period, "end"))
-            totals = _total_readings_by_obis_group(_parse_value_rows(time_period, invalid_rows))
+            end_text = _get_attribute(time_period, "end")
+            start_time = _parse_start_time(end_text)
+            source_rows: List[EslValueRow] = []
+            totals = _total_readings_by_obis_group(_parse_value_rows(
+                time_period, invalid_rows, source_rows, source_path, factory_no))
+            source = EslSource(source_path, factory_no, end_text, tuple(source_rows))
+            if sources is not None:
+                sources.append(source)
 
             for group, start_value in totals.items():
                 sensor_id = OBIS_GROUP_TO_SENSOR.get(group)
@@ -121,35 +160,45 @@ def parse_esl_file(file_path: Path, skipped: List[dict] | None = None, invalid_r
                 if owner != factory_no:
                     reason = f"OBIS-Gruppe {group} wird bereits von Meter {owner} geliefert"
                     continue
-                result[sensor_id].append(EslMeterReading(start_time, start_value))
+                result[sensor_id].append(EslMeterReading(start_time, start_value, source))
                 used = True
 
         if not used and skipped is not None:
-            skipped.append({"meter": factory_no, "file": file_path.name, "reason": reason})
+            skipped.append({"meter": factory_no, "file": source_path,
+                            "kind": "meter", "reason": reason, "skippedRecords": 0})
 
     return {sensor_id: values for sensor_id, values in result.items() if values}
 
 def load_esl_folder(folder_path: Path, skipped: List[dict] | None = None):
     all_readings: Dict[str, List[EslMeterReading]] = {}
-    for xml_file in sorted(folder_path.glob("*.xml")):
+    sources: List[EslSource] = []
+    for xml_file in sorted(path for path in folder_path.rglob("*")
+                           if path.is_file() and path.suffix.lower() == ".xml"):
+        source_path = xml_file.relative_to(folder_path).as_posix()
         file_skips: List[dict] = []
         invalid_rows: List = []
         try:
-            readings = parse_esl_file(xml_file, file_skips, invalid_rows)
+            file_sources: List[EslSource] = []
+            readings = parse_esl_file(xml_file, file_skips, invalid_rows, source_path, file_sources)
         except (ET.ParseError, ValueError, OSError) as error:
             if skipped is not None:
                 reason = ("Kein gültiges XML" if isinstance(error, ET.ParseError)
                           else f"Fehlerhafte Daten: {error}")
-                skipped.append({"file": xml_file.name, "reason": reason, "skippedRecords": 0})
+                skipped.append({"file": source_path, "kind": "file",
+                                "reason": reason, "skippedRecords": 0})
             continue
+        sources.extend(file_sources)
         if skipped is not None:
             skipped.extend(file_skips)
-            if invalid_rows:
-                skipped.append({"file": xml_file.name, "reason": 'ValueRow mit status != "V"',
-                                "skippedRecords": len(invalid_rows)})
+            skipped.extend(invalid_rows)
+        if not any(readings.values()):
+            if skipped is not None:
+                skipped.append({"file": source_path, "kind": "file",
+                                "reason": "Keine gültigen ESL-Zählerstände", "skippedRecords": 0})
+            continue
         for sensor_id, values in readings.items():
             all_readings.setdefault(sensor_id, []).extend(values)
-    return {
+    return EslDataset({
         sensor_id: sorted(remove_esl_duplicates(readings), key=lambda r: r.start_time)
         for sensor_id, readings in all_readings.items()
-    }
+    }, sources)
