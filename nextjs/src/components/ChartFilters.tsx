@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange } from "@/lib/chart-filters";
+import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange, hasDataFor, sensorsFor } from "@/lib/chart-filters";
 import type { Sensor } from "@/lib/types";
 
 export default function ChartFilters({ dataset, sensors, selected, kind, from, to, resolution }: {
@@ -28,26 +28,26 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
     <input type="hidden" name="dataset" value={dataset} />
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div className="flex flex-wrap items-end gap-3">
-      <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
-        <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
-          const next = event.target.value;
-          const range = sensorDateRange(sensors, next);
-          setChartKind(next); setStart(range.first); setEnd(range.last);
-          submit(event.currentTarget.form);
-        }}>
-          <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
-          <NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
-        </NativeSelect>
-      </div>
-      {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
-      {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
-        <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
-          <NativeSelectOption value="day">Tag</NativeSelectOption>
-          <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
-            {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
-          </NativeSelectOption>
-        </NativeSelect>
-      </div> : <input type="hidden" name="resolution" value={resolution} />}
+        <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
+          <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
+            const next = event.target.value;
+            const range = sensorDateRange(sensorsFor(sensors, next), next);
+            setChartKind(next); setStart(range.first); setEnd(range.last);
+            submit(event.currentTarget.form);
+          }}>
+            <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
+            <NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
+          </NativeSelect>
+        </div>
+        {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
+        {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
+          <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
+            <NativeSelectOption value="day">Tag</NativeSelectOption>
+            <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
+              {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
+            </NativeSelectOption>
+          </NativeSelect>
+        </div> : <input type="hidden" name="resolution" value={resolution} />}
       </div>
       <div className="flex flex-wrap items-end justify-end gap-3">
         <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
@@ -74,11 +74,23 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
     {error && sensors.length > 0 && <p id="date-error" role="alert" className="text-sm text-destructive">{error}</p>}
     <p className="pt-2 text-sm text-muted-foreground">{chartKind === "consumption" ? "Verbrauch" : "Zählerstand"} (kWh) · Europe/Zurich</p>
     <div className="flex flex-wrap justify-center gap-4" role="group" aria-label="Sensoren">
-      {sensors.map((sensor) => <Label key={sensor.sensorId} className="flex cursor-pointer items-center gap-2">
-        <Checkbox name="sensor" value={sensor.sensorId} defaultChecked={selected.includes(sensor.sensorId)}
-          style={{ borderColor: sensorColor(sensor.sensorId), backgroundColor: selected.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined }} />
-        {sensor.label}
-      </Label>)}
+      {sensors.map((sensor) => {
+        const available = hasDataFor(sensor, chartKind);
+        return <Label key={sensor.sensorId} className="flex cursor-pointer items-center gap-2">
+          <Checkbox name="sensor" value={sensor.sensorId}
+            defaultChecked={selected.includes(sensor.sensorId)}
+            style={{
+              borderColor: sensorColor(sensor.sensorId),
+              backgroundColor: selected.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined
+            }} />
+          <span className={available ? undefined : "text-muted-foreground"}>
+            {sensor.label}
+            {!available && <span className="ml-1 text-xs">
+              ({chartKind === "consumption" ? "kein Verbrauch" : "keine Zählerstände"})
+            </span>}
+          </span>
+        </Label>;
+      })}
     </div>
   </>;
 }

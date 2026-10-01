@@ -5,9 +5,22 @@ export function isDateInput(value: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
-export function eligibleSensors(sensors: Sensor[]): Sensor[] {
-  return sensors.filter((sensor) => sensor.hasConsumption && sensor.hasMeterReadings
-    && sensor.consumptionDates.length > 0 && sensor.meterReadingDates.length > 0);
+/** Hat dieser Sensor Daten für diese Diagrammart? */
+export function hasDataFor(sensor: Sensor, kind: string): boolean {
+  return kind === "consumption"
+    ? sensor.hasConsumption && sensor.consumptionDates.length > 0
+    : sensor.hasMeterReadings && sensor.meterReadingDates.length > 0;
+}
+
+/** FA-03: jeder importierte Sensor bleibt wählbar, auch ohne ESL-Daten. */
+export function importedSensors(sensors: Sensor[]): Sensor[] {
+  return sensors.filter((sensor) =>
+    hasDataFor(sensor, "consumption") || hasDataFor(sensor, "meter-reading"));
+}
+
+/** Nur die Sensoren, die für diese Diagrammart etwas anzuzeigen haben. */
+export function sensorsFor(sensors: Sensor[], kind: string): Sensor[] {
+  return sensors.filter((sensor) => hasDataFor(sensor, kind));
 }
 
 export function sensorDateRange(sensors: Sensor[], kind: string) {
