@@ -24,6 +24,7 @@ import {
 import { findAll, findOne } from "./tree";
 
 type Formatter = (value: number) => string;
+type TooltipFormatter = (value: unknown, payload: Array<{ payload: { ts: number } }>) => string | null;
 
 const chart = (data: DataPoint[], kind: "bar" | "line", resolution: "day" | "15min") =>
   EnergyChart({ data: [{ sensorId: "ID742", data }], kind, resolution }) as ReactNode;
@@ -105,13 +106,15 @@ describe("EnergyChart", () => {
   it("macht die Herbst-Doppelstunde in Achse und Tooltip unterscheidbar", () => {
     const tree = chart(autumnDoubleHour, "bar", "15min");
     const tick = findOne(tree, XAxis).props.tickFormatter as Formatter;
-    const tooltip = findOne(tree, ChartTooltipContent).props.labelFormatter as Formatter;
-    for (const format of [tick, tooltip]) {
-      const labels = autumnDoubleHour.map((p) => format(Date.parse(p.ts)));
-      assert.equal(new Set(labels).size, autumnDoubleHour.length);
-      assert.ok(labels.includes("27.10.2019, 02:00 GMT+2"));
-      assert.ok(labels.includes("27.10.2019, 02:00 GMT+1"));
+    const tooltip = findOne(tree, ChartTooltipContent).props.labelFormatter as TooltipFormatter;
+    const ticks = autumnDoubleHour.map((p) => tick(Date.parse(p.ts)));
+    const labels = autumnDoubleHour.map((p) => tooltip("ID742", [{ payload: { ts: Date.parse(p.ts) } }]));
+    for (const formatted of [ticks, labels]) {
+      assert.equal(new Set(formatted).size, autumnDoubleHour.length);
+      assert.ok(formatted.includes("27.10.2019, 02:00 GMT+2"));
+      assert.ok(formatted.includes("27.10.2019, 02:00 GMT+1"));
     }
+    assert.equal(tooltip("ID742", []), null);
   });
 
   it("nennt Grösse und Zeitzone über dem Diagramm", () => {

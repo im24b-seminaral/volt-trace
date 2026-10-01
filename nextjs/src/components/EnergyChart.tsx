@@ -46,7 +46,10 @@ export default function EnergyChart({
         <ChartTooltip
           content={
             <ChartTooltipContent
-              labelFormatter={(ts) => formatTime(Number(ts))}
+              labelFormatter={(_label, payload) => {
+                const ts = payload?.[0]?.payload?.ts;
+                return typeof ts === "number" && Number.isFinite(ts) ? formatTime(ts) : null;
+              }}
             />
           }
         />
