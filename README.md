@@ -1,6 +1,6 @@
 # Volt Trace
 
-Webanwendung und Python-Bibliothek zur Auswertung von Schweizer Stromzählerdaten im **SDAT**-Format (relative 15-Minuten-Verbräuche) und **ESL**-Format (absolute Zählerstände an Stichtagen). Aus SDAT und ESL werden fortlaufende Zählerstände berechnet, als Diagramme angezeigt und als CSV exportiert.
+Webanwendung und Python-Bibliothek zur Auswertung von Schweizer Stromzählerdaten im **SDAT**-Format (relative 15-Minuten-Verbräuche) und **ESL**-Format (absolute Zählerstände an Stichtagen). Der Verbrauch kommt aus SDAT, die Zählerstände kommen **direkt aus ESL** (keine Umrechnung aus SDAT). Beides wird als Diagramm angezeigt und getrennt als CSV exportiert.
 
 ---
 
@@ -30,13 +30,15 @@ Webanwendung und Python-Bibliothek zur Auswertung von Schweizer Stromzählerdate
 | **ID742** | Netzbezug | Netz → Gebäude |
 | **ID735** | Einspeisung (z. B. Solar) | Gebäude → Netz |
 
+Weitere Sensoren aus SDAT (im Beispieldatensatz `ID26256`, `ID26257`, `ID26263`) werden ebenfalls eingelesen und mit Richtung `other` geführt. ESL-Zählerstände gibt es nur für ID742 und ID735.
+
 Die Anwendung:
 
-1. nimmt XML-Dateien (SDAT und ESL) per Upload oder Ordnerauswahl entgegen,
-2. sortiert sie in `sdat/` und `esl/` Unterordnern,
-3. parst und verknüpft die Messreihen,
-4. zeigt **Verbrauch** (SDAT-Volumen) oder **Zählerstand** (berechnet) in Diagrammen,
-5. exportiert Zählerstände als **CSV** (pro Sensor).
+1. nimmt XML- und ZIP-Dateien oder einen ganzen Ordner (inklusive Unterordnern) entgegen,
+2. sortiert die Dateien in `sdat/` und `esl/` und zeigt einen **Importbericht** (gefunden, eingelesen, übersprungen, Gründe, Befunde),
+3. liest die Messreihen ein: Verbrauch aus SDAT, Zählerstände aus ESL, je Sensor eindeutig und nach Zeit sortiert (UTC),
+4. zeigt **Verbrauch** (SDAT, Balken) oder **Zählerstand** (ESL, Punkte mit Linie) für einen oder mehrere Sensoren im selben Diagramm,
+5. exportiert pro Sensor `<Sensor>_verbrauch.csv` (FA-10a) und, falls ESL vorhanden, `<Sensor>_zaehlerstand.csv` (FA-10b).
 
 ---
 
@@ -45,21 +47,24 @@ Die Anwendung:
 ```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Next.js (nextjs/) — Browser, Port 3000                     │
-│  • Upload, Filter (Sensor, Zeitraum, Auflösung, Diagrammtyp) │
-│  • Server Actions + API-Route für CSV-Download              │
+│  • Upload (XML/ZIP/Ordner), Importbericht                   │
+│  • Filter: Diagramm, Sensoren, Zeitraum                     │
+│  • Server Action (Upload) + Route für CSV-Download          │
 └───────────────────────────┬─────────────────────────────────┘
-                            │ exec: python -m volt_trace.cli …
-                            │ (venv: python/.venv)
+                            │ execFile: python -m volt_trace.cli …
+                            │ (venv: python/.venv, Timeout 180 s)
 ┌───────────────────────────▼─────────────────────────────────┐
 │  Python (python/volt_trace/)                                │
-│  sdat.py → esl.py → analysis.py → export.py                 │
-│  cli.py    Schnittstelle für die Web-UI                     │
-│  main.py   Batch-Pipeline (Ordner → CSV + JSON auf Disk)    │
+│  sdat.py / esl.py  → einlesen (SDAT-Verbrauch, ESL-Stände)  │
+│  export.py         → CSV (verbrauch / zaehlerstand), JSON   │
+│  cli.py            Schnittstelle für die Web-UI, Import     │
+│  main.py           Batch: Ordner → CSV-Dateien              │
+│  analysis.py       nur Prüfung SDAT vs. ESL (Befund, Tests) │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 - **Kein separater Python-HTTP-Server** für die Standard-Oberfläche: Next.js startet bei Bedarf Subprozesse (`nextjs/src/lib/python.ts`).
-- Hochgeladene Datensätze liegen **nur zur Laufzeit** unter dem konfigurierbaren Datenverzeichnis (Standard: OS-Temp `volt-trace-data/<UUID>/` mit `sdat/`, `esl/` und `.processed-v1.cache`), nicht im Git-Repository.
+- Hochgeladene Datensätze liegen **nur zur Laufzeit** unter dem konfigurierbaren Datenverzeichnis (Standard: OS-Temp `volt-trace-data/<UUID>/` mit `sdat/`, `esl/`, `import-report.json` und `.processed-v3.cache`), nicht im Git-Repository.
 - Jede Browser-Sitzung (`vt_session`-Cookie) darf nur eigene Dataset-IDs lesen/exportieren; Verarbeitung erfolgt ausschließlich lokal (Next.js + Python-Subprozess, kein Netzwerkport in Python).
 
 ---
@@ -78,13 +83,17 @@ Zeitstempel pro Messwert (FA-05):
 
 `timestamp = StartDateTime + Sequence × Resolution` — **Intervallende** in UTC. Verbrauchsfilter in der API: `(Beginn, Ende]` (Grenze Beginn exklusiv, Ende inklusiv).
 
+Prüfungen beim Einlesen (NFA-06): Als `Unit` ist nur `MIN` erlaubt. Anzahl der Messwerte, höchste `Sequence` und `(Ende − Beginn) / Auflösung` müssen übereinstimmen, die Sequenzen müssen lückenlos `1..N` sein. Fehlt `Resolution` (Schema 1p5), wird die Auflösung aus `(Ende − Beginn) / Anzahl Messwerte` berechnet. Eine fehlerhafte Datei wird mit Grund im Importbericht übersprungen, der Rest wird weiter verarbeitet.
+
 ### ESL (ESLBillingData)
 
 Typische Inhalte:
 
-- `Meter` mit `factoryNo` (wird beim Parsen nicht einzeln gefiltert; relevante OBIS-Werte stammen vom Hauptzähler)
+- `Meter` mit `factoryNo`. Pro Datei liefert der erste Zähler mit einer OBIS-Gruppe diese Gruppe; Zähler ohne vollständige Paare (im Beispiel `5442313`) werden mit Grund als `meter`-Eintrag gemeldet.
 - `TimePeriod end="…"` — Ablesezeitpunkt in **Lokalzeit Europe/Zurich** (ohne `Z`)
-- `ValueRow` mit `obis`, `value`, optional `status`
+- `ValueRow` mit `obis`, `value`, optional `status`. Zeilen mit `status` ungleich `V` werden übersprungen und als Datensatz-Skip (`record`) mit OBIS und Status gemeldet.
+
+Datei, Zählernummer, `end` und alle `ValueRow`s bleiben als Herkunftsdaten (`EslSource`) am Messwert erhalten.
 
 Effektiver Zählerstand pro Richtung:
 
@@ -101,32 +110,35 @@ Summe **nur**, wenn beide Register (`.1` und `.2`) vorhanden sind. Andere OBIS-G
 
 ## Verarbeitungslogik
 
+### Import (`cli.py sort-files`)
+
+- Durchsucht den Upload-Ordner **rekursiv**. ZIP-Archive (auch in Unterordnern) werden sicher entpackt: keine absoluten Pfade, kein `..`, keine symbolischen Links, höchstens 20 000 Einträge, 256 MB pro Eintrag und 1 GB gesamt. `__MACOSX`, `._*` und `.DS_Store` werden ignoriert.
+- Jede Datei wird am Wurzelelement erkannt (SDAT: Namensraum `http://www.strom.ch`, ESL: `ESLBillingData`) und mit ihrem **relativen Pfad** nach `sdat/` bzw. `esl/` verschoben. Gleichnamige Dateien aus verschiedenen Unterordnern gehen so nicht verloren.
+- Nicht-XML, ungültiges XML, unbekanntes Format, ungültige ZIPs und unvollständige Dateien landen mit Grund im Bericht; alle gültigen Dateien werden trotzdem eingelesen (NFA-06).
+
 ### SDAT laden (`load_sdat_folder`)
 
-- XML-Dateien auch in Unterordnern einlesen. Beim Web-Upload werden ZIP-Archive sicher entpackt.
+- XML-Dateien auch in Unterordnern einlesen.
 - Pro Datei Sensor-ID aus `DocumentID` extrahieren; auch weitere Sensoren werden eingelesen.
 - Messwerte gleicher Sensoren aus mehreren Dateien werden zusammengeführt.
-- Dateiquelle, `Creation`, Intervall, Auflösung und Dokumentstatus bleiben im Datenmodell erhalten.
+- Dateiquelle, `DocumentID`, `Creation`, Intervall, Auflösung mit Einheit und Dokumentstatus bleiben als `SdatSource` im Datenmodell erhalten.
 
 ### ESL laden (`load_esl_folder`)
 
 - ESL-XMLs auch in Unterordnern einlesen, OBIS-Summen bilden, pro Sensor Stichtagswerte sammeln. Meter, OBIS-Werte und Status bleiben als Herkunftsdaten erhalten.
-- Doppelte Stichtags-Zeitstempel pro Sensor werden entfernt (`remove_esl_duplicates`).
+- Doppelte Stichtags-Zeitstempel pro Sensor werden entfernt (`remove_esl_duplicates`, die nach Pfad zuerst gelesene Datei gewinnt), danach wird nach Zeit sortiert.
+- Diese ESL-Werte sind **direkt** die Quelle für das Zählerstandsdiagramm und den Export `zaehlerstand`. Sie werden nie aggregiert, skaliert oder an SDAT angepasst.
 
-### Zählerstand berechnen (`calculate_all_meter_readings`)
-
-- Pro Sensor: erster ESL-Stichtag innerhalb des SDAT-Zeitraums als Referenz; falls keiner darin liegt, der früheste ESL-Stichtag.
-- ESL-Anker = Zählerstand am **Ende** des ESL-Intervalls; SDAT-`timestamp` ist ebenfalls Intervallende.
-  Intervalle mit Ende nach dem Anker werden vorwärts kumuliert (`Zählerstand += Volume`), davor rückwärts abgezogen.
-- Sensoren **ohne** ESL-Daten erhalten keine berechnete Zählerstandskurve (`hasMeterReadings: false` in der UI).
-
-### Duplikate (SDAT)
+### Duplikate (SDAT, FA-06)
 
 Innerhalb einer Datei müssen die Sequenznummern vollständig und eindeutig sein. Über mehrere Dateien hinweg gewinnt bei gleichem Zeitstempel der Wert aus der zuletzt erstellten Datei (`Creation`); bei gleichem `Creation` entscheidet der relative Dateipfad.
 
-### Rückwärtsrechnung vor dem ESL-Anker
+### Prüfung SDAT gegen ESL (`analysis.py`)
 
-Die Implementierung rechnet Werte vor dem ESL-Anker rückwärts und Werte danach vorwärts.
+`analysis.py` rechnet aus einem ESL-Anker und den SDAT-Volumen Zählerstände vorwärts und rückwärts (FA-07). Diese berechnete Serie wird **nicht** angezeigt und nicht exportiert. Sie dient nur noch zwei Zwecken:
+
+- **Befund im Importbericht:** Ist die berechnete Zunahme zwischen zwei ESL-Stichtagen etwa dreimal so gross wie die ESL-Differenz, meldet der Import «SDAT-Verbrauch und ESL-Zählerdifferenz weichen bei der Testanlage um etwa Faktor 3 ab». Die Werte bleiben unverändert.
+- **Tests:** `test_analysis.py` und `test_esl_vs_sdat.py`. Der Soll-Ist-Test gegen ESL ist wegen dieses Faktors als `xfail` markiert.
 
 ---
 
@@ -134,25 +146,50 @@ Die Implementierung rechnet Werte vor dem ESL-Anker rückwärts und Werte danach
 
 ```text
 volt-trace/
-├── README.md
+├── README.md                  # dieses Dokument
+├── PYTHON.md                  # ausführliche Doku des Python-Teils
+├── OFFENE_PUNKTE.md           # offene Punkte gegen das Pflichtenheft
+├── docs/
+│   ├── architecture/          # Klassen- und Komponentendiagramm (FA-11)
+│   └── ABNAHME_RUNTIME_v1.0.md
+├── XML-Files/                 # Beispieldaten, nur lokal (in .gitignore)
+│   ├── SDAT-Files/
+│   └── ESL-Files/
 ├── nextjs/                    # Next.js 16 Frontend
-│   ├── src/app/               # Seite, Upload-Action, CSV-Download-Route
-│   ├── src/components/        # Diagramme, FileUpload, UI (shadcn)
-│   ├── src/lib/python.ts      # Aufruf von volt_trace.cli
+│   ├── src/app/
+│   │   ├── page.tsx           # Hauptseite: Importbericht, Filter, Diagramm, CSV-Buttons
+│   │   ├── actions.ts         # Server Action uploadDataset (Upload → sort-files)
+│   │   └── download/[datasetId]/[sensorId]/route.ts   # CSV-Download
+│   ├── src/components/
+│   │   ├── FileUpload.tsx     # XML/ZIP- und Ordnerauswahl
+│   │   ├── ImportReport.tsx   # Importbericht aus import-report.json
+│   │   ├── ChartFilters.tsx   # Diagrammart, Sensoren, Zeitraum, Schnellwahl
+│   │   ├── ChartForm.tsx      # Formular + Ladezustand
+│   │   ├── EnergyChart.tsx    # Recharts-Diagramm (Balken bzw. Linie, mehrere Sensoren)
+│   │   ├── ConsumptionChart.tsx / MeterReadingChart.tsx
+│   │   └── ui/                # shadcn-Komponenten
+│   ├── src/lib/
+│   │   ├── python.ts          # Aufruf von volt_trace.cli (Timeout, Fehlertext)
+│   │   ├── datetime.ts        # Europe/Zurich ↔ UTC, Achsenbeschriftung
+│   │   ├── session*.ts, data-paths.ts, runtime-data.ts   # Sitzung und Datenverzeichnis
+│   │   └── types.ts           # Sensor, SensorSeries, ImportReport …
+│   ├── src/middleware.ts      # setzt Sitzungs-Cookie
+│   ├── tests/charts/          # Diagramm- und datetime-Tests (node:test)
 │   └── (kein data/ im Repo; Laufzeit unter VOLT_TRACE_DATA_DIR / OS-Temp)
-├── python/
-│   ├── volt_trace/
-│   │   ├── sdat.py            # SDAT-Parser, MeasuredValue
-│   │   ├── esl.py             # ESL-Parser, EslMeterReading, OBIS-Summe
-│   │   ├── analysis.py        # Zählerstandsberechnung
-│   │   ├── export.py          # CSV- und JSON-Dateiexport
-│   │   ├── cli.py             # Kommandos für die Web-UI
-│   │   ├── main.py            # CLI-Pipeline mit --esl-dir / --sdat-dir
-│   │   └── compare_esl_vs_sdat.py  # Hilfsskript zum Abgleich ESL vs. SDAT
-│   ├── tests/                 # pytest (ESL-Fixtures, …)
-│   ├── data/                  # Beispiel-ESL-XML
-│   └── requirements.txt
-└── sdat_files/                # Beispiel-SDAT-XML
+└── python/
+    ├── volt_trace/
+    │   ├── sdat.py            # SDAT-Parser: MeasuredValue, SdatSource, SdatDataset
+    │   ├── esl.py             # ESL-Parser: EslMeterReading, EslSource, EslDataset, OBIS-Summe
+    │   ├── quantities.py      # round_kwh / sum_kwh (4 Nachkommastellen, NFA-04)
+    │   ├── export.py          # CSV (verbrauch / zaehlerstand) und JSON
+    │   ├── cli.py             # Kommandos für die Web-UI inkl. Import und Cache
+    │   ├── main.py            # Batch-Export mit --esl-dir / --sdat-dir
+    │   ├── analysis.py        # Prüfung SDAT vs. ESL (Befund, Tests)
+    │   ├── compare_esl_vs_sdat.py  # Hilfsskript zum Abgleich ESL vs. SDAT
+    │   └── calc_values.py     # Hilfsskript: Kennzahlen für die Doku
+    ├── tests/                 # pytest + fixtures/ (ESL-Beispiele)
+    ├── pyproject.toml
+    └── requirements.txt
 ```
 
 ---
@@ -223,21 +260,26 @@ Next.js verwendet automatisch `python/.venv` (falls vorhanden), sonst `python`/`
 
 ### Bedienung
 
-1. **XML-/ZIP-Dateien wählen** oder **Ordner wählen** (inklusive Unterordnern).
-2. Der Importbericht zeigt gefundene, eingelesene und übersprungene Dateien sowie übersprungene Datensätze mit Gründen. Ungültige ZIPs und XMLs werden gemeldet; gültige Dateien werden weiter verarbeitet.
-3. **Sensor**, **Zeitraum** (Kalendertage in **Europe/Zurich**), **Auflösung** (Tag / 15 Minuten) und **Diagrammtyp** wählen:
-   - **Verbrauch** — SDAT-`Volume` (bei Tag-Ansicht Summe pro Kalendertag).
-   - **Zählerstand** — kumulierte absolute Werte aus ESL-Anker + SDAT.
-4. **CSV exportieren** — Download über `/download/<datasetId>/<sensorId>` (nur wenn Zählerstände berechenbar sind).
+1. **XML/ZIP-Dateien wählen** oder **Ordner wählen** (inklusive Unterordnern). Während des Uploads zeigt der Button «Lade hoch …». Liefert der Import keine einzige verwendbare Datei, erscheint der erste Grund als Fehlermeldung und es wird kein Datensatz angelegt.
+2. Der **Importbericht** zeigt gefundene, eingelesene und übersprungene Dateien sowie übersprungene Datensätze. Unter «Meldungen und Gründe» stehen alle Einträge mit Datei, Zähler, OBIS und Grund. Der bekannte Faktor-3-Befund der Testanlage erscheint als Hinweis.
+3. Filter wählen und **Anzeigen** klicken:
+   - **Diagramm:** **Verbrauch** (SDAT-`Volume`, Balken; bei mehreren Sensoren gestapelt) oder **Zählerstand** (ESL-Ablesungen, jeder Punkt markiert und linear verbunden).
+   - **Sensoren:** ein oder mehrere Sensoren per Checkbox; mehrere erscheinen als getrennte Reihen im selben Diagramm.
+   - **Zeitraum:** **Von** / **Bis** als Kalendertage in **Europe/Zurich** oder Schnellwahl **7 Tage**, **Monat**, **Jahr**, **Alles**. Ohne Auswahl gilt der ganze Datenzeitraum der gewählten Sensoren.
+   - **Auflösung:** wird automatisch gewählt. Bis 7 Tage zeigt der Verbrauch 15-Minuten-Werte, darüber Tageswerte (Summe pro Kalendertag). ESL-Zählerstände werden nie aggregiert.
+4. **CSV laden:** Unter dem Diagramm stehen pro gewähltem Sensor die Buttons **Verbrauch (CSV)** (nur mit SDAT-Daten) und **Zählerstände (CSV)** (nur mit ESL-Daten). Download über `/download/<datasetId>/<sensorId>?kind=verbrauch|zaehlerstand`, Dateiname `<Sensor>_verbrauch.csv` bzw. `<Sensor>_zaehlerstand.csv`.
+
+Fehler aus Python (z. B. Zeitüberschreitung nach 180 s) werden als Text angezeigt; der Upload kann ohne Neuladen erneut gestartet werden.
 
 ### Zeitzone in der Oberfläche
 
 - Diagramm-Achse und Tooltips zeigen Zeitstempel in **Europe/Zurich** (`DD.MM.YYYY` bzw. `DD.MM.YYYY HH:mm`).
 - Die API liefert weiterhin UTC-ISO-Strings; die Umrechnung erfolgt in [`nextjs/src/lib/datetime.ts`](nextjs/src/lib/datetime.ts).
-- Datumsfilter (**Von** / **Bis**) bezeichnen lokale Kalendertage in Zurich und werden für die Python-Abfrage in UTC umgerechnet.
+- Datumsfilter (**Von** / **Bis**) bezeichnen lokale Kalendertage in Zurich und werden für die Python-Abfrage in UTC umgerechnet. Beim Verbrauch geht der Zeitraum von lokaler Mitternacht des Von-Tags (exklusiv) bis zur **abschliessenden** lokalen Mitternacht nach dem Bis-Tag (inklusiv), damit der Wert mit Intervallende 00:00 zum richtigen Tag gehört (`localNextDayStartUtcIso`). Beim Zählerstand gilt Von-Tag 00:00 bis Bis-Tag 23:59:59.
+- Wiederholte Uhrzeiten bei der Umstellung auf Winterzeit sind in der 15-Minuten-Ansicht durch den UTC-Versatz unterscheidbar (`GMT+2` / `GMT+1`).
 - **CSV-Export** bleibt unverändert: Unix-Zeitstempel in **UTC** (Sekunden).
 
-Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.config.ts`, Standard 120 MB).
+Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.config.ts`; jeder Python-Aufruf bricht nach 180 s ab, siehe `nextjs/src/lib/python.ts`; Standard 120 MB).
 
 ### Sitzung und Datenschutz (NFA-11 / NFA-12)
 
@@ -257,21 +299,41 @@ Alle Befehle aus dem Ordner `python/` (mit aktivierter venv oder `python -m`):
 
 | Kommando | Argumente | Ausgabe |
 |----------|-----------|---------|
-| `sort-files` | `<srcDir> <datasetDir>` | JSON: Dateien nach `sdat/` / `esl/` verschieben |
-| `sensors` | `<datasetDir>` | JSON: Sensorliste inkl. `hasMeterReadings` |
-| `series` | `<datasetDir> <sensorId> <kind> <resolution> <from> <to>` | JSON-Zeitreihe (`kind`: `consumption` \| `meter-reading`, `resolution`: `day` \| `15min`) |
-| `export` | `<datasetDir> <sensorId>` | CSV auf stdout (`timestamp,value`) |
+| `sort-files` | `<srcDir> <datasetDir>` | JSON-Importbericht (siehe unten); verschiebt Dateien rekursiv nach `sdat/` / `esl/`, entpackt ZIPs und füllt den Cache |
+| `sensors` | `<datasetDir>` | JSON: Sensorliste (Vereinigung aus SDAT und ESL) |
+| `series` | `<datasetDir> <sensorId> <kind> <resolution> <from> <to>` | JSON `[{sensorId, data: [{ts, value}]}]` (`kind`: `consumption` \| `meter-reading`, `resolution`: `day` \| `15min`, `ts` ISO-UTC) |
+| `export` | `<datasetDir> <sensorId> <kind>` | CSV auf stdout (`timestamp,value`), `kind`: `verbrauch` \| `zaehlerstand`. Exit-Code `1`, wenn es für den Sensor keine Daten dieser Art gibt, `2` bei unbekanntem `kind` |
+
+**Importbericht** von `sort-files`:
+
+| Feld | Bedeutung |
+|------|-----------|
+| `foundFiles` | gefundene Dateien inkl. ZIP-Einträge (ohne `__MACOSX`, `._*`, `.DS_Store`) |
+| `processedFiles` | erfolgreich eingelesene XML-Dateien |
+| `skippedFiles` | `foundFiles − processedFiles` |
+| `skippedRecords` | übersprungene Datensätze (z. B. ESL-Zeilen mit Status ≠ `V`) |
+| `issues` | Liste `{file, kind, reason, skippedRecords, meter?, obis?, status?}`; `kind` ist `file`, `record` oder `meter` |
+| `findings` | Hinweise, z. B. der Faktor-3-Befund der Testanlage |
+
+Next.js speichert den Bericht als `import-report.json` im Datensatz.
+
+**Sensorliste** von `sensors`: `sensorId`, `label`, `direction` (`consumption` \| `feed-in` \| `other`), `hasConsumption` (SDAT vorhanden), `hasMeterReadings` (ESL vorhanden), `consumptionDates` und `meterReadingDates` (`[erster, letzter]` lokaler Tag, für die Vorbelegung des Zeitraums).
+
+**Zeitraum** von `series`: Verbrauch `from < ts ≤ to`, Zählerstand `from ≤ ts ≤ to`. Bei `resolution=day` wird nur der Verbrauch je lokalem Kalendertag summiert (Wert um 00:00 gehört zum Vortag); ESL-Werte werden nie aggregiert.
+
+**Cache:** `_load` speichert die eingelesenen Daten als `.processed-v3.cache` im Datensatz. Der Cache wird neu gebaut, sobald sich eine XML-Datei oder eine `.py`-Datei des Pakets ändert.
 
 Beispiel:
 
 ```bash
 cd python
 python -m volt_trace.cli sensors <VOLT_TRACE_DATA_DIR>/<UUID>
+python -m volt_trace.cli export <VOLT_TRACE_DATA_DIR>/<UUID> ID742 zaehlerstand > ID742_zaehlerstand.csv
 ```
 
-### Batch-Pipeline (`volt_trace.main`)
+### Batch-Export (`volt_trace.main`)
 
-Liest zwei Ordner, berechnet Zählerstände, schreibt **CSV und JSON** nach `--output-dir`:
+Liest zwei Ordner (rekursiv) und schreibt pro Sensor `<Sensor>_verbrauch.csv` und, falls ESL vorhanden, `<Sensor>_zaehlerstand.csv` nach `--output-dir` (gleiches Format wie der Download):
 
 ```bash
 cd python
@@ -291,41 +353,43 @@ Diese Beschreibung reicht, um den Export aus `main.py`, `cli.py` oder einer spä
 ### Import
 
 ```python
-from volt_trace.export import DataPoint, export_csv, export_json, to_csv_string, to_json_payload, to_json_string
+from volt_trace.export import (
+    KIND_CONSUMPTION, KIND_METER, DataPoint, consumption_points, meter_points,
+    csv_filename, export_csv, export_json, to_csv_string, to_json_payload, to_json_string,
+)
 ```
 
 Aufbau wie in `sdat.py` und `esl.py`: ein Dataclass-Objekt für die Daten (`DataPoint`) und normale Funktionen für den Export.
 
 ### Eingabe: `DataPoint`
 
-Ein absoluter Zählerstand zu einem Zeitpunkt.
+Ein Wert zu einem Zeitpunkt: Verbrauch eines Intervalls (Zeitpunkt = Intervallende) oder ESL-Zählerstand.
 
 | Feld | Typ | Bedeutung |
 |---|---|---|
-| `time` | `datetime` **mit Zeitzone** (UTC) | Zeitpunkt des Zählerstands |
-| `value` | `float` | absoluter Zählerstand in kWh |
+| `time` | `datetime` **mit Zeitzone** (UTC) | Intervallende bzw. Ablesezeitpunkt |
+| `value` | `float` | Verbrauch bzw. absoluter Zählerstand in kWh |
 
 - Ein `datetime` **ohne** Zeitzone löst sofort `ValueError` aus. Die Zeitpunkte aus `sdat.py` und `esl.py` haben bereits UTC, sie können direkt übergeben werden.
 - Die Funktionen für mehrere Sensoren erwarten die Daten als `Dict[str, List[DataPoint]]`: Sensorkennung → Liste von Zählerständen, z. B. `{"ID742": [...], "ID735": [...]}`.
 - Die Sensorkennung darf nur `A-Z a-z 0-9 _ -` enthalten, sonst `ValueError`.
 - Die Liste muss nicht sortiert sein, der Export sortiert selbst nach Zeit.
-- Der Export aggregiert **nicht**. Für FA-10 („kleinstmöglicher Zeitabstand“) die 15-Minuten-Zählerstände übergeben, keine Tageswerte.
+- Der Export aggregiert **nicht**. Für FA-10 („kleinstmöglicher Zeitabstand“) die 15-Minuten-Verbrauchswerte bzw. alle ESL-Stände übergeben, keine Tageswerte.
 
-Umwandlung der berechneten Zählerstände aus `analysis.calculate_all_meter_readings` (liefert `Dict[str, List[EslMeterReading]]`):
+Umwandlung der eingelesenen Daten (zwei getrennte Quellen, keine Umrechnung):
 
-```python
-data = {
-    sensor_id: [DataPoint(r.start_time, r.start_value) for r in readings]
-    for sensor_id, readings in meter_readings.items()
-}
-```
+| Funktion | Quelle | Ergebnis |
+|---|---|---|
+| `consumption_points(sdat_data)` | `load_sdat_folder` | `{sensor: [DataPoint(timestamp, volume)]}` für FA-10a |
+| `meter_points(esl_data)` | `load_esl_folder` | `{sensor: [DataPoint(start_time, start_value)]}` für FA-10b |
 
-### CSV (FA-10)
+### CSV (FA-10a / FA-10b)
 
 | Funktion | Rückgabe | Zweck |
 |---|---|---|
-| `to_csv_string(points: List[DataPoint])` | `str` | CSV-Text **eines** Sensors, z. B. für den Download über die Oberfläche |
-| `export_csv(data: Dict[str, List[DataPoint]], target_folder: Path)` | `List[Path]` | schreibt pro Sensor eine Datei `<Sensor>.csv`, erstellt den Ordner falls nötig |
+| `to_csv_string(points: List[DataPoint])` | `str` | CSV-Text **eines** Sensors; derselbe Text für Download (`cli export`) und Batch (`main.py`) |
+| `csv_filename(sensor_id, kind)` | `str` | `ID742_verbrauch.csv` bzw. `ID742_zaehlerstand.csv` (`kind`: `KIND_CONSUMPTION` = `verbrauch`, `KIND_METER` = `zaehlerstand`) |
+| `export_csv(data, target_folder, kind)` | `List[Path]` | schreibt pro Sensor eine Datei `csv_filename(sensor, kind)`, erstellt den Ordner falls nötig |
 
 Format: Kopfzeile `timestamp,value`, Zeitstempel als Unix-Epoch in Sekunden (UTC), Wert mit 4 Nachkommastellen, Zeilenende `\n`.
 
@@ -362,14 +426,20 @@ Format gemäss Vorgabe des Auftraggebers: `ts` ist der Unix-Epoch als **String**
 
 ```python
 from pathlib import Path
-from volt_trace.export import DataPoint, export_csv, export_json
+from volt_trace.esl import load_esl_folder
+from volt_trace.export import (KIND_CONSUMPTION, KIND_METER, consumption_points,
+                               export_csv, export_json, meter_points)
+from volt_trace.sdat import load_sdat_folder
 
-data = {sensor_id: [DataPoint(r.start_time, r.start_value) for r in readings]
-        for sensor_id, readings in meter_readings.items()}
+sdat = load_sdat_folder(Path("daten/sdat"))
+esl = load_esl_folder(Path("daten/esl"))
 
-export_csv(data, Path("export"))                              # export/ID742.csv, export/ID735.csv
-export_json(data, Path("export") / "meter_readings.json")     # export/meter_readings.json
+export_csv(consumption_points(sdat), Path("export"), KIND_CONSUMPTION)  # export/ID742_verbrauch.csv, …
+export_csv(meter_points(esl), Path("export"), KIND_METER)               # export/ID742_zaehlerstand.csv, …
+export_json(meter_points(esl), Path("export") / "meter_readings.json")  # optional, FA-13
 ```
+
+`export_esl_comparison_csv` schreibt die Soll-Ist-Tabelle aus `analysis.compare_with_esl` (nur für `test_esl_vs_sdat.py`).
 
 Die Ordner `python/export/` und `python/volt_trace/export/` sind im `.gitignore`.
 
@@ -377,15 +447,35 @@ Die Ordner `python/export/` und `python/volt_trace/export/` sind im `.gitignore`
 
 ## Tests
 
+### Python
+
 ```bash
 cd python
 python -m pytest -q
 ```
 
-- `tests/test_esl.py` — OBIS-Gruppierung, Hoch-/Niedertarif-Summe, UTC-Konvertierung, fehlende Register
-- `tests/fixtures/` — minimale ESL-XMLs
+| Datei | Inhalt |
+|-------|--------|
+| `tests/test_import_report.py` | Ordner- und ZIP-Import mit Unterordnern liefern dieselben Werte, gleichnamige Dateien bleiben erhalten, Metadaten, Importzahlen, unsichere/ungültige ZIPs, FA-06 bei gleicher `Creation` (relativer Pfad entscheidet), Faktor-3-Befund |
+| `tests/test_sdat_timestamps.py` | FA-05: Intervallenden, 96/92/100/2976 Werte, `Unit`, Sequenzprüfung |
+| `tests/test_daily_aggregation.py` | Tageswerte nach lokaler Mitternacht, Zeitumstellung |
+| `tests/test_esl.py` | OBIS-Gruppierung, Hoch-/Niedertarif-Summe, UTC-Konvertierung, fehlende Register |
+| `tests/test_cli_cache.py` | Cache von `_load` |
+| `tests/test_quantities.py` | Rundung auf 4 Stellen (NFA-04) |
+| `tests/test_analysis.py` | FA-07-Berechnung in `analysis.py` |
+| `tests/test_esl_vs_sdat.py` | Soll-Ist-Vergleich am Beispieldatensatz; wird übersprungen, wenn `XML-Files/` fehlt. Der Toleranztest ist wegen des Faktor-3-Befunds `xfail` |
+| `tests/fixtures/` | minimale ESL-XMLs |
 
-Hinweis: Funktionsnamen in `esl.py` heissen `_obis_group` und `_total_readings_by_obis_group`; Tests müssen dieselben Namen importieren, damit pytest grün läuft.
+Stand auf diesem Branch: **37 passed, 1 xfailed**.
+
+### Frontend
+
+```bash
+npm --prefix nextjs ci        # einmalig, installiert u. a. tsx
+npm --prefix nextjs test      # Session-Store, Diagramme, datetime (node:test via tsx)
+```
+
+Die Diagrammtests unter `nextjs/tests/charts/` prüfen Balken/Linie, Achsentitel, Europe/Zurich, Herbst-Doppelstunde und leere Reihen mit festen UTC-Fixtures.
 
 ---
 
@@ -393,10 +483,12 @@ Hinweis: Funktionsnamen in `esl.py` heissen `_obis_group` und `_total_readings_b
 
 | Pfad | Inhalt |
 |------|--------|
-| `sdat_files/*.xml` | SDAT-Beispiel (ID735, 15-Min-Intervall) |
-| `python/data/EdmRegisterWertExport_*.xml` | ESL mit Zähler `38157930`, OBIS 1.8.x / 2.8.x |
+| `XML-Files/SDAT-Files/*.xml` | 5133 SDAT-Dateien; Sensoren ID742, ID735, ID26256, ID26257, ID26263 |
+| `XML-Files/ESL-Files/*.xml` | 45 ESL-Dateien mit 44 verschiedenen Stichtagen je ID742/ID735 (Zähler `38157930`); Zähler `5442313` wird übergangen |
 
-Für End-to-End-Tests: SDAT- und ESL-Ordner mit passenden Sensor-IDs und überlappendem Zeitraum verwenden.
+Der Ordner `XML-Files/` ist in `.gitignore` und muss lokal vorhanden sein. Ohne ihn werden die Tests mit Beispieldaten übersprungen.
+
+Erwartete Exporte aus dem Beispieldatensatz (Zeilen ohne Kopfzeile): `ID742_verbrauch.csv` und `ID735_verbrauch.csv` je 129 116, `ID26256_verbrauch.csv` und `ID26257_verbrauch.csv` je 98 300, `ID26263_verbrauch.csv` 32, `ID742_zaehlerstand.csv` und `ID735_zaehlerstand.csv` je 44. Ordner- und ZIP-Import liefern identische CSV-Dateien.
 
 ---
 
@@ -406,17 +498,17 @@ Kurzstatus gegen die Seminar-Spezifikation (ohne Gewähr auf Vollständigkeit de
 
 | ID | Thema | Status im Repo |
 |----|--------|----------------|
-| FA-01 | SDAT einlesen | Kernfelder ja; `Creation`/Merge-Regel teilweise |
-| FA-02 | ESL einlesen | `end`, OBIS, `value` ja; `factoryNo`/`status` nicht modelliert |
-| FA-03 | Sensoren / UI | UI für ID735/742; weitere IDs nur wenn in SDAT und Parser erlaubt |
-| FA-04 | OBIS-Summe HT+NT | Implementiert in `esl.py` |
-| FA-05 | Zeitstempel aus Sequence | Implementiert in `sdat.py` |
-| FA-06 | Duplikate nach Creation | Vereinfacht (erster Timestamp gewinnt) |
-| FA-07 | Zählerstand Anker + Konsistenz | Vorwärts ab frühestem ESL; keine Rückwärtsrechnung / ESL-Toleranztests |
-| FA-08–09 | Verbrauchs- / Zählerstandsdiagramm | Web-UI mit Recharts |
-| FA-10 | CSV-Export | Ja (CLI + Download) |
-| FA-11 | Klassen-/Komponentendiagramm | Dokumentation ausserhalb des Repos |
-| FA-12–13 | JSON HTTP POST / JSON-Datei | JSON-Datei via `main.py`; HTTP POST offen |
+| FA-01 | SDAT einlesen | Ordner und ZIP rekursiv, alle Felder inkl. `Creation`, Einheit und Status als `SdatSource`, Importbericht |
+| FA-02 | ESL einlesen | `end`, OBIS, `value`, `factoryNo` und `status` als `EslSource`; Status ≠ `V` wird gemeldet |
+| FA-03 | Sensoren / UI | alle Sensoren aus SDAT und ESL (Vereinigung), Mehrfachauswahl in der UI |
+| FA-04 | OBIS-Summe HT+NT | Implementiert in `esl.py`; Zähler ohne Paare werden gemeldet |
+| FA-05 | Zeitstempel aus Sequence | Intervallende, Einheit/Sequenz geprüft (`sdat.py`) |
+| FA-06 | Duplikate nach Creation | neueste `Creation` gewinnt, bei Gleichstand der relative Pfad |
+| FA-07 | Zählerstand aus SDAT | entfällt für Anzeige/Export; `analysis.py` nur noch für Befund und Tests |
+| FA-08–09 | Verbrauchs- / Zählerstandsdiagramm | Recharts; Verbrauch aus SDAT, Zählerstand direkt aus ESL; mehrere Sensoren |
+| FA-10 | CSV-Export | `_verbrauch.csv` für alle SDAT-Sensoren, `_zaehlerstand.csv` nur mit ESL (Download + `main.py`) |
+| FA-11 | Klassen-/Komponentendiagramm | [`docs/architecture/`](docs/architecture/) |
+| FA-12–13 | JSON HTTP POST / JSON-Datei | `to_json_payload` / `export_json` vorhanden; kein UI-Download, HTTP POST offen |
 
 ---
 
@@ -435,10 +527,10 @@ Python-Abhängigkeiten: keine zur Laufzeit (nur Standardbibliothek); `requiremen
 
 ### Wichtige Erweiterungspunkte
 
-- SDAT-Deduplizierung über alle Dateien nach `Creation` (aufsteigend), letzter Wert gewinnt
-- Rückwärtsrechnung und Validierung an allen ESL-Stichtagen (&lt; 0,001 kWh)
-- Generische Sensor-IDs (nicht nur ID735/ID742)
-- HTTP-POST-Export (FA-12) und einheitliches JSON-Schema zwischen Export und API
+- Sichtbarer Upload-/Verarbeitungsfortschritt in Prozent (heute nur «Lade hoch …»)
+- Hinweistext auf der Seite, wenn für einen Sensor keine ESL-Daten vorliegen (heute fehlt nur der Button)
+- Objektorientierte Klassen für Einlesen, Aggregation und Export mit kompatiblen Wrappern (NFA-01)
+- JSON-Download in der Oberfläche (FA-13) und HTTP-POST-Export (FA-12)
 
 ---
 
