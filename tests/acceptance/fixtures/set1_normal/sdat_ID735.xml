@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rsm:ValidatedMeteredData_12 xmlns:rsm="http://www.strom.ch">
+  <rsm:InstanceDocument>
+    <rsm:DocumentID>PRUEF_C_ID735</rsm:DocumentID>
+    <rsm:Creation>2024-01-15T06:00:00Z</rsm:Creation>
+  </rsm:InstanceDocument>
+  <rsm:MeteringData>
+    <rsm:Interval>
+      <rsm:StartDateTime>2024-01-14T22:30:00Z</rsm:StartDateTime>
+      <rsm:EndDateTime>2024-01-15T00:00:00Z</rsm:EndDateTime>
+    </rsm:Interval>
+    <rsm:Resolution><rsm:Resolution>15</rsm:Resolution><rsm:Unit>MIN</rsm:Unit></rsm:Resolution>
+    <rsm:Observation><rsm:Position><rsm:Sequence>1</rsm:Sequence></rsm:Position><rsm:Volume>0.00</rsm:Volume></rsm:Observation>
+    <rsm:Observation><rsm:Position><rsm:Sequence>2</rsm:Sequence></rsm:Position><rsm:Volume>0.00</rsm:Volume></rsm:Observation>
+    <rsm:Observation><rsm:Position><rsm:Sequence>3</rsm:Sequence></rsm:Position><rsm:Volume>0.05</rsm:Volume></rsm:Observation>
+    <rsm:Observation><rsm:Position><rsm:Sequence>4</rsm:Sequence></rsm:Position><rsm:Volume>0.05</rsm:Volume></rsm:Observation>
+    <rsm:Observation><rsm:Position><rsm:Sequence>5</rsm:Sequence></rsm:Position><rsm:Volume>0.10</rsm:Volume></rsm:Observation>
+    <rsm:Observation><rsm:Position><rsm:Sequence>6</rsm:Sequence></rsm:Position><rsm:Volume>0.00</rsm:Volume></rsm:Observation>
+  </rsm:MeteringData>
+</rsm:ValidatedMeteredData_12>

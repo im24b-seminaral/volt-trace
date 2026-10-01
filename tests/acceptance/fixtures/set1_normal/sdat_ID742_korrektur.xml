@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rsm:ValidatedMeteredData_12 xmlns:rsm="http://www.strom.ch">
+  <rsm:InstanceDocument>
+    <rsm:DocumentID>PRUEF_B_ID742</rsm:DocumentID>
+    <rsm:Creation>2024-01-16T06:00:00Z</rsm:Creation>
+  </rsm:InstanceDocument>
+  <rsm:MeteringData>
+    <rsm:Interval>
+      <rsm:StartDateTime>2024-01-14T23:30:00Z</rsm:StartDateTime>
+      <rsm:EndDateTime>2024-01-14T23:45:00Z</rsm:EndDateTime>
+    </rsm:Interval>
+    <rsm:Observation><rsm:Position><rsm:Sequence>1</rsm:Sequence></rsm:Position><rsm:Volume>0.20</rsm:Volume></rsm:Observation>
+  </rsm:MeteringData>
+</rsm:ValidatedMeteredData_12>

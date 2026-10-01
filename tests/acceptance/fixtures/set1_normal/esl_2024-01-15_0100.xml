@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ESLBillingData>
+  <Meter factoryNo="PRUEF0001">
+    <TimePeriod end="2024-01-15T01:00:00">
+      <ValueRow obis="1-1:1.8.1" value="600.5" status="V"/>
+      <ValueRow obis="1-1:1.8.2" value="400.35" status="V"/>
+      <ValueRow obis="1-1:2.8.1" value="10.2" status="V"/>
+      <ValueRow obis="1-1:2.8.2" value="6.0" status="V"/>
+      <ValueRow obis="1-1:1.8.0" value="99999" status="V"/>
+    </TimePeriod>
+  </Meter>
+</ESLBillingData>
