@@ -29,6 +29,7 @@ export function sensorDateRange(sensors: Sensor[], kind: string) {
 }
 
 export function dateRangeError(from: string, to: string, first: string, last: string): string {
+  if (!first || !last) return "Keine Daten für diesen Diagrammtyp vorhanden.";
   if (!isDateInput(from) || !isDateInput(to)) return "Bitte zwei gültige Daten eingeben.";
   if (from > to) return "Von darf nicht nach Bis liegen.";
   if ((first && from < first) || (last && to > last)) return "Bitte einen Zeitraum innerhalb der vorhandenen Daten wählen.";

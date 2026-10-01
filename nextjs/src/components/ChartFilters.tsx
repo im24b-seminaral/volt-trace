@@ -52,12 +52,12 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
       <div className="flex flex-wrap items-end justify-end gap-3">
         <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
           <Input id="from" name="from" type="date" className="w-40" value={start} required
-            min={first} max={end || last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
+            min={first} max={end || last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setStart(event.currentTarget.value)} />
         </div>
         <div className="space-y-1.5"><Label htmlFor="to">Bis</Label>
           <Input id="to" name="to" type="date" className="w-40" value={end} required
-            min={start || first} max={last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
+            min={start || first} max={last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setEnd(event.currentTarget.value)} />
         </div>
         <div className="flex flex-wrap gap-2">
