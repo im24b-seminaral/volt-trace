@@ -15,6 +15,9 @@ Aufrufe (aus dem Hauptordner des Repositorys):
   Verbrauchs-CSV gegen SDAT-Werte (Soll = Volume pro 15 min):
     python scripts/acceptance/csv_pruefen.py verbrauch <datei.csv> --xml <ordner> --sensor ID742
 
+esl/verbrauch erwarten den vollständigen Export eines Sensors: genau die Soll-Zeitpunkte,
+jeder einmal, keine fehlenden, zusätzlichen oder doppelten Zeilen.
+
 Exit-Code 0 = alles bestanden, 1 = mindestens eine Abweichung, 2 = Datei/Aufruf falsch.
 Die Ausgabe ist eine Markdown-Tabelle zum Kopieren ins Testprotokoll.
 """
@@ -23,7 +26,7 @@ import argparse
 import csv
 import platform
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from sollwerte import lies_esl_ordner, lies_sdat_ordner, utc_zu_lokal
@@ -105,77 +108,67 @@ def pruefe_format(csv_pfad: Path) -> bool:
 
 # ------------------------------------------------------------------ esl
 
+def vergleiche_exakt(daten, soll: dict) -> bool:
+    """CSV muss genau die Soll-Zeitpunkte enthalten: jeden einmal, keine zusätzlichen, aufsteigend,
+    jeder Wert < TOLERANZ vom Soll. Gemeinsam für ESL- und Verbrauchsprüfung (FA-05, FA-10a/b)."""
+    zeiten = [d[0] for d in daten if d[0] is not None]
+    ist = {d[0]: d[1] for d in daten if d[0] is not None}
+    kaputt = [d for d in daten if d[0] is None]
+    fehlend = sorted(set(soll) - set(ist))
+    zusaetzlich = sorted(set(ist) - set(soll))
+    doppelt = len(zeiten) - len(ist)
+    abweichungen = [(t, soll[t], ist[t]) for t in sorted(set(ist) & set(soll)) if abs(ist[t] - soll[t]) >= TOLERANZ]
+    pruefungen = [
+        (f"CSV-Zeilen = Soll-Zeitpunkte ({len(soll)})", len(daten) == len(soll), len(daten)),
+        ("Fehlerhafte Zeilen", not kaputt, len(kaputt)),
+        ("Fehlende Soll-Zeitpunkte", not fehlend, len(fehlend)),
+        ("Zusätzliche Zeitpunkte ohne Soll", not zusaetzlich, len(zusaetzlich)),
+        ("Doppelte Zeitstempel", not doppelt, doppelt),
+        ("Zeitstempel aufsteigend", zeiten == sorted(zeiten), ""),
+        (f"Abweichungen ≥ {TOLERANZ} kWh", not abweichungen, len(abweichungen)),
+    ]
+    print("| Prüfung | Ergebnis | Status |\n|---|---|:---:|")
+    for name, ok, ergebnis in pruefungen:
+        print(f"| {name} | {ergebnis} | {'✅' if ok else '❌'} |")
+    if abweichungen:
+        print("\nErste Abweichungen:\n\n| Zeitpunkt | Soll | Ist | Differenz |\n|---|---:|---:|---:|")
+        for t, s, i in abweichungen[:15]:
+            print(f"| {fmt(t)} | {s:.4f} | {i:.4f} | {i - s:+.4f} |")
+    for titel, liste in (("Fehlende", fehlend), ("Zusätzliche", zusaetzlich)):
+        if liste:
+            print(f"\n{titel} Zeitpunkte (max. 15): " + ", ".join(fmt(t) for t in liste[:15]))
+    return all(ok for _n, ok, _e in pruefungen)
+
+
 def pruefe_esl(csv_pfad: Path, xml: Path, sensor: str) -> bool:
     _kopf, daten = lies_csv(csv_pfad)
-    ist = {d[0]: d[1] for d in daten if d[0] is not None}
     soll = lies_esl_ordner(xml).get(sensor, {})
     kopfzeile(f"Zählerstand {sensor} gegen ESL-Ablesungen", csv_pfad)
     if not soll:
         print(f"❌ Keine ESL-Werte für {sensor} in `{xml}` gefunden.")
         return False
-    if ist:
-        anfang, ende = min(ist), max(ist)
-        print(f"CSV deckt {fmt(anfang)} bis {fmt(ende)} ab.\n")
-
-    print("| ESL-Zeitpunkt | Soll kWh | Ist kWh (gleicher Zeitpunkt) | Differenz | Status | Hinweis |")
-    print("|---|---:|---:|---:|:---:|---|")
-    alle_ok, geprueft = True, 0
-    for zeit, sollwert in soll.items():
-        if zeit in ist:
-            diff = ist[zeit] - sollwert
-            ok = abs(diff) < TOLERANZ
-            geprueft += 1
-            alle_ok &= ok
-            print(f"| {fmt(zeit)} | {sollwert:.4f} | {ist[zeit]:.4f} | {diff:+.4f} | {'✅' if ok else '❌'} | |")
-            continue
-        if not ist or zeit < min(ist) - timedelta(minutes=15) or zeit > max(ist) + timedelta(minutes=15):
-            print(f"| {fmt(zeit)} | {sollwert:.4f} | – | – | ⚪ | ausserhalb des CSV-Zeitraums |")
-            continue
-        naechster = min(ist, key=lambda t: abs(t - zeit))
-        abstand = int((naechster - zeit).total_seconds() // 60)
-        alle_ok = False
-        geprueft += 1
-        print(f"| {fmt(zeit)} | {sollwert:.4f} | – | – | ❌ | kein CSV-Wert zu diesem Zeitpunkt; "
-              f"nächster: {abstand:+d} min = {ist[naechster]:.4f} |")
-    print(f"\nGeprüfte ESL-Zeitpunkte im CSV-Zeitraum: {geprueft}")
-    return alle_ok and geprueft > 0
+    # FA-10b: ausschliesslich echte ESL-Ablesezeitpunkte, keine berechneten Zwischenstände.
+    print(f"Soll: genau die {len(soll)} ESL-Ablesungen, keine Zwischenwerte.\n")
+    return vergleiche_exakt(daten, soll)
 
 
 # ------------------------------------------------------------------ verbrauch
 
 def pruefe_verbrauch(csv_pfad: Path, xml: Path, sensor: str) -> bool:
     _kopf, daten = lies_csv(csv_pfad)
-    ist = {d[0]: d[1] for d in daten if d[0] is not None}
     sdat = lies_sdat_ordner(xml).get(sensor, {})
     kopfzeile(f"Verbrauch {sensor} gegen SDAT", csv_pfad)
     if not sdat:
         print(f"❌ Keine SDAT-Werte für {sensor} in `{xml}` gefunden.")
         return False
 
-    # Welche Zeitkonvention benutzt die CSV? Intervallbeginn oder -ende (FA-05 verlangt Ende).
-    soll_beginn = {beginn: vol for beginn, (_ende, vol) in sdat.items()}
-    soll_ende = {ende: vol for _beginn, (ende, vol) in sdat.items()}
-    treffer_beginn = sum(1 for t in ist if t in soll_beginn)
-    treffer_ende = sum(1 for t in ist if t in soll_ende)
-    if treffer_ende >= treffer_beginn:
-        soll, konvention = soll_ende, "Intervall**ende** (wie FA-05 verlangt)"
-    else:
-        soll, konvention = soll_beginn, "Intervall**beginn** (FA-05 verlangt Intervallende → Befund)"
-    print(f"Zeitstempel in der CSV entsprechen dem {konvention}.\n")
-
-    gemeinsam = sorted(set(ist) & set(soll))
-    abweichungen = [(t, soll[t], ist[t]) for t in gemeinsam if abs(ist[t] - soll[t]) >= TOLERANZ]
-    nur_csv = sorted(set(ist) - set(soll))
-    print("| Prüfung | Ergebnis | Status |\n|---|---|:---:|")
-    print(f"| CSV-Zeilen | {len(ist)} | ℹ️ |")
-    print(f"| davon mit SDAT-Soll verglichen | {len(gemeinsam)} | {'✅' if gemeinsam else '❌'} |")
-    print(f"| Abweichungen ≥ {TOLERANZ} kWh | {len(abweichungen)} | {'✅' if not abweichungen else '❌'} |")
-    print(f"| CSV-Zeitpunkte ohne SDAT-Wert | {len(nur_csv)} | {'✅' if not nur_csv else '⚠️'} |")
-    if abweichungen:
-        print("\nErste Abweichungen:\n\n| Zeitpunkt | Soll | Ist | Differenz |\n|---|---:|---:|---:|")
-        for t, s, i in abweichungen[:15]:
-            print(f"| {fmt(t)} | {s:.4f} | {i:.4f} | {i - s:+.4f} |")
-    return bool(gemeinsam) and not abweichungen
+    # FA-05: Zeitstempel = Intervall**ende**. Intervallbeginn wird nie als bestanden gewertet.
+    soll = {ende: vol for _beginn, (ende, vol) in sdat.items()}
+    ist_zeiten = {d[0] for d in daten if d[0] is not None}
+    if ist_zeiten and ist_zeiten <= set(sdat) and ist_zeiten != set(soll):
+        print("⚠️ Zeitstempel entsprechen dem Intervall**beginn** (FA-05 verlangt Intervallende → Befund).\n")
+    print(f"Soll: genau die {len(soll)} deduplizierten SDAT-Intervalle, Zeitstempel = Intervallende.\n")
+    return vergleiche_exakt(daten, soll)
 
 
 # ------------------------------------------------------------------ main
