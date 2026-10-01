@@ -42,4 +42,70 @@ Ein Befund wird erst geschlossen, wenn die Prüfung auf einem neuen Commit wiede
 
 ## Befunde
 
-_(noch keine – neue Befunde unten anfügen, fortlaufend nummerieren)_
+### BEF-01 – UI blockiert über 3 Sekunden bei Datenverarbeitung
+
+| | |
+|---|---|
+| Prüfung | L-04 |
+| Schwere | 🟠 Soll |
+| Eigentümer | #12 |
+| Commit | `90577f2` |
+| Umgebung | Windows 10, Opera 136.0 / Chrome 152.0, Python 3.10.0, Node v22.12.0 |
+| Gefunden am | 01.10.2026 11:11 |
+| Status | offen |
+
+**Schritte zum Nachstellen**
+1. `npm run dev` starten, http://localhost:3001 öffnen
+2. DevTools öffnen, in Konsole `longtasks_konsole.js` einfügen
+3. Echten Datensatz hochladen
+4. `abnahmeErgebnis()` in der Konsole ausführen
+
+**Erwartet (Soll):** Keine Long Tasks > 1000 ms
+
+**Tatsächlich (Ist):** 8 Long Tasks, längster 3223 ms
+
+**Nachweis:** Konsole-Ausgabe im TESTPROTOKOLL.md unter L-04
+
+### BEF-02 – Server-Verarbeitung dauert zu lange (TTFB > 10 s)
+
+| | |
+|---|---|
+| Prüfung | L-03 |
+| Schwere | 🔴 Muss |
+| Eigentümer | #12 |
+| Commit | `90577f2` |
+| Umgebung | Windows 10, Python 3.10.0 |
+| Gefunden am | 01.10.2026 11:51 |
+| Status | offen |
+
+**Schritte zum Nachstellen**
+1. Echten Datensatz (XML-Files.zip, ca. 110 MB) hochladen.
+2. Network-Tab beobachten.
+
+**Erwartet (Soll):** Server (TTFB) ≤ 10 s
+
+**Tatsächlich (Ist):** Server-Antwort dauert ca. 40 s. Die Python-CLI (`sort-files`) verarbeitet 5179 Dateien synchron während des Upload-Requests.
+
+**Nachweis:** Backend-Logs, siehe TESTPROTOKOLL.md.
+
+### BEF-03 – Kein Fortschrittsbalken beim Upload
+
+| | |
+|---|---|
+| Prüfung | L-05 |
+| Schwere | 🟠 Soll |
+| Eigentümer | #12 |
+| Commit | `90577f2` |
+| Umgebung | Windows 10 |
+| Gefunden am | 01.10.2026 11:51 |
+| Status | offen |
+
+**Schritte zum Nachstellen**
+1. Grossen Datensatz hochladen.
+2. UI während des Uploads beobachten.
+
+**Erwartet (Soll):** Fortschrittsbalken oder Ladeindikator sichtbar.
+
+**Tatsächlich (Ist):** Kein nativer Fortschrittsbalken sichtbar (Next.js Server Actions blockieren einfach bis sie fertig sind, UI "friert" scheinbar ein).
+
+**Nachweis:** UI-Test.
