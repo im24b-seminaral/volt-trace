@@ -5,6 +5,7 @@ import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
 import HttpPostExport from "@/components/HttpPostExport";
 import { ChevronRight } from "lucide-react";
+import ImportReport from "@/components/ImportReport";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
@@ -69,6 +70,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       <h1 className="text-2xl font-semibold">Messdaten</h1>
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {directory && <ImportReport dataset={dataset} directory={directory} />}
     <ChartForm chart={
       error ? null
         : kind === "consumption"

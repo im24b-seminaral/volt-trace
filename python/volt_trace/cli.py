@@ -1,26 +1,34 @@
-import sys
-import json
-import shutil
 import hashlib
+import json
 import pickle
-import tempfile
-import zipfile
+import shutil
 import stat
+import sys
+import tempfile
 import xml.etree.ElementTree as ET
-from pathlib import Path
+import zipfile
 from datetime import datetime, timedelta, timezone
-from zoneinfo import ZoneInfo
+from pathlib import Path
 
+from volt_trace.analysis import calculate_all_meter_readings
+from volt_trace.esl import load_esl_folder
+from volt_trace.export import (
+    KIND_CONSUMPTION,
+    KIND_METER,
+    KINDS,
+    consumption_points,
+    meter_points,
+    to_csv_string,
+    to_json_string,
+)
+from volt_trace.localtime import LOCAL_TZ
+from volt_trace.localtime import consumption_day_bucket as _consumption_day_bucket
 from volt_trace.progress import Progress
 from volt_trace.quantities import round_kwh
+from volt_trace.report import build_report
 from volt_trace.sdat import SENSOR_DIRECTIONS, load_sdat_folder
-from volt_trace.esl import load_esl_folder
-from volt_trace.analysis import calculate_all_meter_readings
-from volt_trace.export import (KIND_CONSUMPTION, KIND_METER, KINDS, consumption_points,
-                               meter_points, to_csv_string, to_json_string)
 
 NS_SDAT = "{http://www.strom.ch}"
-LOCAL_TZ = ZoneInfo("Europe/Zurich")
 INTERVAL = timedelta(minutes=15)   # Länge eines sdat-Intervalls
 
 
@@ -103,8 +111,8 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
     for archive_path in archives:
         _extract_archive(archive_path, src, issues)
 
-    found = len(issues)
-    staged = 0
+    found_by_type = {"sdat": 0, "esl": 0, "other": len(issues)}
+    staged_by_type = {"sdat": 0, "esl": 0}
     candidates = sorted(path for path in src.rglob("*") if path.is_file() or path.is_symlink())
     progress.send("sort", 0, len(candidates))
     for sorted_count, file_path in enumerate(candidates, start=1):
@@ -114,59 +122,44 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
                 or "__MACOSX" in relative.parts
                 or file_path.name.startswith("._") or file_path.name == ".DS_Store"):
             continue
-        found += 1
         label = relative.as_posix()
         if file_path.is_symlink():
+            found_by_type["other"] += 1
             issues.append({"file": label, "kind": "file", "reason": "Symbolischer Link nicht erlaubt",
                            "skippedRecords": 0})
             continue
         if file_path.suffix.lower() != ".xml":
+            found_by_type["other"] += 1
             issues.append({"file": label, "kind": "file", "reason": "Keine XML-Datei",
                            "skippedRecords": 0})
             continue
         file_type, error = _detect_file_type(file_path)
         if file_type is None:
+            found_by_type["other"] += 1
             issues.append({"file": label, "kind": "file", "reason": error,
                            "skippedRecords": 0})
             continue
+        found_by_type[file_type] += 1
         target = destination / file_type / relative
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
-            issues.append({"file": label, "kind": "file", "reason": "Doppelter Dateipfad",
-                           "skippedRecords": 0})
+            issues.append({"file": label, "kind": "file",
+                           "reason": "Doppelter Dateipfad", "skippedRecords": 0})
             continue
         shutil.move(str(file_path), target)
-        staged += 1
+        staged_by_type[file_type] += 1
 
     # Files lesen und Fehler sammeln (füllt gleichzeitig den Cache) - NFA-06.
     # Meter-Skips (FA-04) sind erwartet und werden hier nicht als Fehler gemeldet.
     sdat_data, esl_data, skipped = _load(dataset_dir, progress)
     issues.extend(skipped)
-    failed_staged = sum(issue.get("kind") == "file" for issue in skipped)
-    imported = staged - failed_staged
     progress.send("prepare")
-    meter_readings = calculate_all_meter_readings(sdat_data, esl_data)
-    findings = _measurement_findings(meter_readings, esl_data)
-    report = {"foundFiles": found, "processedFiles": imported,
-              "skippedFiles": found - imported,
-              "skippedRecords": sum(issue.get("skippedRecords", 0) for issue in issues),
-              "issues": issues, "findings": findings}
+    report = build_report(
+        found_by_type=found_by_type, staged_by_type=staged_by_type, issues=issues,
+        sdat_data=sdat_data, esl_data=esl_data,
+        meter_readings=calculate_all_meter_readings(sdat_data, esl_data),
+    )
     print(json.dumps(report))
-
-
-def _measurement_findings(meter_readings, esl_data) -> list[str]:
-    for sensor_id, series in meter_readings.items():
-        dates = sorted(esl_data.get(sensor_id, []), key=lambda reading: reading.start_time)
-        for first, last in zip(dates, dates[1:]):
-            if first.start_time not in series or last.start_time not in series:
-                continue
-            measured_change = last.start_value - first.start_value
-            calculated_change = (series[last.start_time].meter_value
-                                 - series[first.start_time].meter_value)
-            if measured_change and abs(calculated_change / measured_change - 3) < 0.05:
-                return ["Befund: SDAT-Verbrauch und ESL-Zählerdifferenz weichen bei der "
-                        "Testanlage um etwa Faktor 3 ab. Gültige Werte wurden unverändert übernommen."]
-    return []
 
 
 def _count_xml(folder: Path) -> int:
@@ -200,11 +193,15 @@ def _load(dataset_dir: str, progress: Progress | None = None):
     except (OSError, EOFError, ValueError, TypeError, AttributeError, ImportError, pickle.UnpicklingError):
         pass
 
-    skipped = []   # defekte Files und übersprungene Datensätze (NFA-06)
-    sdat_data = load_sdat_folder(base / "sdat", skipped,   # dedupliziert + sortiert (FA-06)
+    # Die Skips tragen ihren Dateityp, damit der Bericht je Typ zählen kann.
+    sdat_skipped: list[dict] = []   # defekte Files und übersprungene Datensätze (NFA-06)
+    esl_skipped: list[dict] = []
+    sdat_data = load_sdat_folder(base / "sdat", sdat_skipped,   # dedupliziert + sortiert (FA-06)
                                  lambda done, total: progress.send("sdat", done, total))
-    esl_data = load_esl_folder(base / "esl", skipped,      # ESL-Stände (HT + NT)
+    esl_data = load_esl_folder(base / "esl", esl_skipped,       # ESL-Stände (HT + NT)
                                lambda done, total: progress.send("esl", done, total))
+    skipped = [*({**entry, "type": "sdat"} for entry in sdat_skipped),
+               *({**entry, "type": "esl"} for entry in esl_skipped)]
     data = sdat_data, esl_data, skipped
     # Atomic replacement also allows simultaneous requests to finish safely.
     with tempfile.NamedTemporaryFile(dir=base, delete=False) as stream:
@@ -238,19 +235,6 @@ def cmd_sensors(dataset_dir: str):
         for sensor_id in sensor_ids
     ]
     print(json.dumps(result))
-
-
-def _consumption_day_bucket(interval_end_utc: datetime) -> datetime.date:
-    """Verbrauchstag aus Intervallende (Europe/Zurich); Mitternacht → Vortag."""
-    local_end = interval_end_utc.astimezone(LOCAL_TZ)
-    if (
-        local_end.hour == 0
-        and local_end.minute == 0
-        and local_end.second == 0
-        and local_end.microsecond == 0
-    ):
-        return local_end.date() - timedelta(days=1)
-    return local_end.date()
 
 
 def _aggregate_by_day(points, kind):
