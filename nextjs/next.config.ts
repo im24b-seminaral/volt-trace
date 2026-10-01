@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
   outputFileTracingExcludes: {
     "*": ["**/data/**", "**/.processed-v1.cache"],
   },
+  outputFileTracingIncludes: {
+    "*": ["../python/volt_trace/**"],
+  },
 };
 
 export default nextConfig;

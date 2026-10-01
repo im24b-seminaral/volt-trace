@@ -8,12 +8,7 @@ version = "1.0.0"
 description = "Energy meter data processing and analysis tool (SDAT/ESL)"
 readme = "README.md"
 requires-python = ">=3.14"
-dependencies = [
-    "fastapi>=0.117.1",
-]
-
-[tool.vercel]
-entrypoint = "volt_trace.api:app"
+dependencies = []
 
 [project.optional-dependencies]
 dev = [

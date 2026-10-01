@@ -6,20 +6,19 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import { PYTHON_TIMEOUT_MS } from "@/lib/constants";
-import { isRemotePython } from "@/lib/python-env";
-import { remoteImportDataset, remoteRunPython } from "@/lib/python-remote";
-import { getDataRoot } from "@/lib/runtime-data";
+import { datasetPath, getDataRoot } from "@/lib/runtime-data";
 
 const run = promisify(execFile);
-const pythonDir = path.resolve(process.cwd(), "../python");
+const pythonDir = process.env.VOLT_TRACE_PYTHON_DIR
+  ? path.resolve(process.cwd(), process.env.VOLT_TRACE_PYTHON_DIR)
+  : path.resolve(process.cwd(), "../python");
 /** @deprecated Verwende getDataRoot(); Laufzeitdaten liegen nicht mehr unter nextjs/data. */
 export const dataDir = getDataRoot();
 const venv = path.join(pythonDir, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-const python = existsSync(venv) ? venv : process.platform === "win32" ? "python" : "python3";
+const python = process.env.VOLT_TRACE_PYTHON?.trim()
+  || (existsSync(venv) ? venv : process.platform === "win32" ? "python" : "python3");
 
-export { datasetPath } from "@/lib/runtime-data";
-export { getPythonServiceUrl, isRemotePython } from "@/lib/python-env";
-export { remoteImportDataset };
+export { datasetPath };
 
 export type PythonProgress = { step: string; done?: number; total?: number };
 
@@ -36,12 +35,6 @@ export function runPythonProgress(
   args: string[],
   signal?: AbortSignal,
 ): Promise<string> {
-  if (command === "sort-files" && isRemotePython()) {
-    throw new Error("sort-files per Binding: importUpload nutzt remoteImportDataset.");
-  }
-  if (isRemotePython()) {
-    return remoteRunPython(command, args[0], ...args.slice(1));
-  }
   return new Promise((resolve, reject) => {
     if (signal?.aborted) return reject(new Error("Upload abgebrochen."));
     const child = spawn(python, ["-m", "volt_trace.cli", command, ...args], {
@@ -73,10 +66,6 @@ export function runPythonProgress(
 }
 
 export async function runPython(command: string, ...args: string[]) {
-  if (isRemotePython()) {
-    const [directory, ...rest] = args;
-    return remoteRunPython(command, directory, ...rest);
-  }
   try {
     const { stdout } = await run(python, ["-m", "volt_trace.cli", command, ...args], {
       cwd: pythonDir, maxBuffer: 32 * 1024 * 1024, timeout: PYTHON_TIMEOUT_MS,

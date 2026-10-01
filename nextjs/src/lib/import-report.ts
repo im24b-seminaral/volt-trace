@@ -3,17 +3,11 @@ import "server-only";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { datasetIdFromDirectory, isRemotePython } from "@/lib/python-env";
 import type { ImportFileType, ImportReport, ImportSensor } from "@/lib/types";
 
 /** Der Bericht entsteht beim Upload; fehlt die Datei, wird er nicht angezeigt. */
 export async function readImportReport(directory: string): Promise<ImportReport | null> {
   try {
-    if (isRemotePython()) {
-      const { remoteReadImportReport } = await import("@/lib/python-remote");
-      const raw = await remoteReadImportReport(datasetIdFromDirectory(directory));
-      return raw ? JSON.parse(raw) as ImportReport : null;
-    }
     return JSON.parse(await readFile(path.join(directory, "import-report.json"), "utf-8")) as ImportReport;
   } catch {
     return null;

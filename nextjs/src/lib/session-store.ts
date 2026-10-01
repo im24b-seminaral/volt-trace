@@ -2,7 +2,6 @@ import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises"
 import path from "node:path";
 
 import { datasetPath, getDataRoot, getSessionsDir } from "@/lib/data-paths";
-import { isRemotePython } from "@/lib/python-env";
 
 const UUID_RE = /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
 
@@ -114,11 +113,6 @@ export async function resolveOwnedDatasetPath(sessionId: string, datasetId: stri
 }
 
 export async function deleteDataset(datasetId: string): Promise<void> {
-  if (isRemotePython()) {
-    const { remoteDeleteDataset } = await import("@/lib/python-remote");
-    await remoteDeleteDataset(datasetId);
-    return;
-  }
   await rm(datasetPath(datasetId), { recursive: true, force: true });
 }
 

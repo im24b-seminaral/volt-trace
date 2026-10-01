@@ -3,20 +3,7 @@
   "services": {
     "nextjs": {
       "root": "nextjs",
-      "framework": "nextjs",
-      "bindings": [
-        {
-          "type": "service",
-          "service": "python",
-          "format": "url",
-          "env": "VOLT_TRACE_PYTHON_URL"
-        }
-      ]
-    },
-    "python": {
-      "root": "python",
-      "runtime": "python",
-      "entrypoint": "volt_trace.api:app"
+      "framework": "nextjs"
     }
   },
   "rewrites": [
