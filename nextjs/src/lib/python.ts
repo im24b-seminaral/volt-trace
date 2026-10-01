@@ -9,11 +9,25 @@ import { PYTHON_TIMEOUT_MS } from "@/lib/constants";
 import { datasetPath, getDataRoot } from "@/lib/runtime-data";
 
 const run = promisify(execFile);
-const pythonDir = path.resolve(process.cwd(), "../python");
+
+/** Feste Unterordner von process.cwd() — kein dynamisches path.resolve (Turbopack-Tracing). */
+function resolvePythonDir(): string {
+  const root = process.cwd();
+  const vendored = path.join(root, "python-runtime");
+  if (process.env.VERCEL === "1" || existsSync(path.join(vendored, "volt_trace"))) {
+    return vendored;
+  }
+  const sibling = path.join(root, "..", "python");
+  if (existsSync(path.join(sibling, "volt_trace"))) return sibling;
+  return vendored;
+}
+
+const pythonDir = resolvePythonDir();
 /** @deprecated Verwende getDataRoot(); Laufzeitdaten liegen nicht mehr unter nextjs/data. */
 export const dataDir = getDataRoot();
 const venv = path.join(pythonDir, ".venv", process.platform === "win32" ? "Scripts/python.exe" : "bin/python");
-const python = existsSync(venv) ? venv : process.platform === "win32" ? "python" : "python3";
+const python = process.env.VOLT_TRACE_PYTHON?.trim()
+  || (existsSync(venv) ? venv : process.platform === "win32" ? "python" : "python3");
 
 export { datasetPath };
 

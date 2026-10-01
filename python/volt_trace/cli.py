@@ -96,8 +96,8 @@ def _extract_archive(archive_path: Path, src: Path, issues: list[dict]) -> int:
     return extracted
 
 
-def cmd_sort_files(src_dir: str, dataset_dir: str):
-    progress = Progress()
+def cmd_sort_files(src_dir: str, dataset_dir: str, progress: Progress | None = None):
+    progress = progress or Progress()
     src = Path(src_dir)
     destination = Path(dataset_dir)
     sdat_dir = destination / "sdat"
@@ -160,6 +160,7 @@ def cmd_sort_files(src_dir: str, dataset_dir: str):
         meter_readings=calculate_all_meter_readings(sdat_data, esl_data),
     )
     print(json.dumps(report))
+    return report
 
 
 def _count_xml(folder: Path) -> int:
@@ -287,19 +288,31 @@ def cmd_series(dataset_dir: str, sensor_id: str, kind: str, resolution: str, fro
     }]))
 
 
-def cmd_export(dataset_dir: str, sensor_id: str, kind: str, file_format: str = "csv"):
+class ExportError(Exception):
+    def __init__(self, code: int, message: str):
+        super().__init__(message)
+        self.code = code
+
+
+def export_payload(dataset_dir: str, sensor_id: str, kind: str, file_format: str = "csv") -> bytes:
     if kind not in KINDS or file_format not in ("csv", "json"):
-        print(f"Unbekannte Exportart: {kind} / {file_format}", file=sys.stderr)
-        sys.exit(2)
+        raise ExportError(2, f"Unbekannte Exportart: {kind} / {file_format}")
     sdat_data, esl_data, _skipped = _load(dataset_dir)
     points = (consumption_points(sdat_data) if kind == KIND_CONSUMPTION
               else meter_points(esl_data)).get(sensor_id)
     if not points:
-        print(f"Für {sensor_id} liegen keine Daten für den Export '{kind}' vor.", file=sys.stderr)
-        sys.exit(1)
-    # FA-13: JSON im selben Format wie export_json: [{sensorId, data: [{ts, value}]}]
+        raise ExportError(1, f"Für {sensor_id} liegen keine Daten für den Export '{kind}' vor.")
     text = to_json_string({sensor_id: points}) if file_format == "json" else to_csv_string(points)
-    sys.stdout.buffer.write(text.encode("utf-8"))
+    return text.encode("utf-8")
+
+
+def cmd_export(dataset_dir: str, sensor_id: str, kind: str, file_format: str = "csv"):
+    try:
+        payload = export_payload(dataset_dir, sensor_id, kind, file_format)
+    except ExportError as error:
+        print(error, file=sys.stderr)
+        sys.exit(error.code)
+    sys.stdout.buffer.write(payload)
 
 
 if __name__ == "__main__":
