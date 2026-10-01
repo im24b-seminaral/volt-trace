@@ -199,6 +199,11 @@ def _load(dataset_dir: str):
     return data
 
 
+def _date_range(days):
+    dates = list(days)
+    return [str(min(dates)), str(max(dates))] if dates else []
+
+
 def cmd_sensors(dataset_dir: str):
     sdat_data, esl_data, _skipped = _load(dataset_dir)
     sensor_ids = sorted(set(sdat_data) | set(esl_data))
@@ -209,6 +214,8 @@ def cmd_sensors(dataset_dir: str):
             "direction": SENSOR_DIRECTIONS.get(sensor_id, "other"),
             "hasConsumption": sensor_id in sdat_data,
             "hasMeterReadings": sensor_id in esl_data,
+            "consumptionDates": _date_range(_consumption_day_bucket(v.timestamp) for v in sdat_data.get(sensor_id, [])),
+            "meterReadingDates": _date_range(r.start_time.astimezone(LOCAL_TZ).date() for r in esl_data.get(sensor_id, [])),
         }
         for sensor_id in sensor_ids
     ]

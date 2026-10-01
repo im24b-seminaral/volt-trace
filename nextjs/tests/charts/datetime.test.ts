@@ -6,6 +6,7 @@ import {
   formatChartDateTime,
   formatChartLabel,
   localDayBoundsToUtcIso,
+  localNextDayStartUtcIso,
   parseApiTimestamp,
 } from "@/lib/datetime";
 import { autumnDoubleHour, consumption15min, consumption15minSummer, springGap } from "./fixtures";
@@ -62,12 +63,6 @@ describe("parseApiTimestamp", () => {
   });
 });
 
-// Bekannter Fehler: zurichLocalToUtc ignoriert Millisekunden, `to` landet ca. 1 s nach Mitternacht
-// des Folgetags (z. B. 2019-01-01T23:00:00.995Z). Der Python-Filter `t <= to` nimmt dadurch den
-// 00:00-Wert (Intervallende) mit, der fachlich zum Tag gehört. Eine Korrektur nur hier würde ihn
-// verlieren, deshalb mit #12 abstimmen. Bis dahin als todo: läuft mit, bricht die Suite nicht ab.
-const DAY_END_TODO = "Tagesende driftet um ~1 s (Absprache mit #12)";
-
 describe("localDayBoundsToUtcIso", () => {
   it("liefert den lokalen Tagesbeginn im Winter, Sommer und an Umstellungstagen", () => {
     assert.equal(localDayBoundsToUtcIso("2019-01-01").from, "2018-12-31T23:00:00.000Z");
@@ -76,7 +71,7 @@ describe("localDayBoundsToUtcIso", () => {
     assert.equal(localDayBoundsToUtcIso("2019-03-31").from, "2019-03-30T23:00:00.000Z");
   });
 
-  it("liefert lokale Tagesgrenzen im Winter und Sommer", { todo: DAY_END_TODO }, () => {
+  it("liefert lokale Tagesgrenzen im Winter und Sommer", () => {
     assert.deepEqual(localDayBoundsToUtcIso("2019-01-01"), {
       from: "2018-12-31T23:00:00.000Z",
       to: "2019-01-01T22:59:59.999Z",
@@ -87,7 +82,7 @@ describe("localDayBoundsToUtcIso", () => {
     });
   });
 
-  it("deckt den 25-Stunden-Tag im Herbst und den 23-Stunden-Tag im Frühling ab", { todo: DAY_END_TODO }, () => {
+  it("deckt den 25-Stunden-Tag im Herbst und den 23-Stunden-Tag im Frühling ab", () => {
     assert.deepEqual(localDayBoundsToUtcIso("2019-10-27"), {
       from: "2019-10-26T22:00:00.000Z",
       to: "2019-10-27T22:59:59.999Z",
@@ -100,5 +95,11 @@ describe("localDayBoundsToUtcIso", () => {
 
   it("lehnt ungültige Daten ab", () => {
     assert.throws(() => localDayBoundsToUtcIso(""), /Ungültiges Datum/);
+  });
+
+  it("nimmt beim SDAT-Verbrauch das Intervallende an der nächsten Mitternacht mit", () => {
+    assert.equal(localNextDayStartUtcIso("2019-01-01"), "2019-01-01T23:00:00.000Z");
+    assert.equal(localNextDayStartUtcIso("2019-10-27"), "2019-10-27T23:00:00.000Z");
+    assert.equal(localNextDayStartUtcIso("2019-03-31"), "2019-03-31T22:00:00.000Z");
   });
 });

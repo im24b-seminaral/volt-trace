@@ -81,6 +81,7 @@ function zurichLocalToUtc(
       Number(parts.hour),
       Number(parts.minute),
       Number(parts.second),
+      new Date(utcMs).getUTCMilliseconds(),
     );
     utcMs += wanted - shown;
   }
@@ -100,4 +101,11 @@ export function localDayBoundsToUtcIso(dateYmd: string): { from: string; to: str
   const to = zurichLocalToUtc(y, m, d, 23, 59, 59, 999);
 
   return { from: from.toISOString(), to: to.toISOString() };
+}
+
+export function localNextDayStartUtcIso(dateYmd: string): string {
+  const [y, m, d] = dateYmd.split("-").map(Number);
+  if (!y || !m || !d) throw new Error(`Ungültiges Datum: ${dateYmd}`);
+  const nextDay = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  return localDayBoundsToUtcIso(nextDay).from;
 }
