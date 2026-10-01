@@ -11,18 +11,22 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const encoder = new TextEncoder();
   let live = true;
+  const abort = new AbortController();
+  request.signal.addEventListener("abort", () => abort.abort(), { once: true });
+  if (request.signal.aborted) abort.abort();
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (event: unknown) => {
         if (live) controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`));
       };
-      const result = await importUpload(form, send);
+      const result = await importUpload(form, send, abort.signal);
       send("datasetId" in result ? { dataset: result.datasetId } : { error: result.error });
       if (live) controller.close();
     },
     cancel() {
-      live = false;   // Browser ist weg; die Verarbeitung läuft zu Ende, nur ohne Empfänger.
+      abort.abort();
+      live = false;   // Browser ist weg; der Import wird abgebrochen und aufgeräumt.
     },
   });
 

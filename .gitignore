@@ -100,7 +100,7 @@ Desktop.ini
 *.log
 *.tmp
 
-XML-Files/*
+XML-Files
 
 # Generated CSV exports
 python/volt_trace/export/

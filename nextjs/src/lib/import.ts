@@ -27,6 +27,7 @@ function safeUploadPath(value: string): string {
 export async function importUpload(
   form: FormData,
   onProgress: (event: PythonProgress) => void = () => {},
+  signal?: AbortSignal,
 ): Promise<ImportResult> {
   const selectedFiles = form.getAll("files").filter((file): file is File => file instanceof File && !!file.name);
   const folderFiles = form.getAll("folder").filter((file): file is File => file instanceof File && !!file.name);
@@ -38,12 +39,17 @@ export async function importUpload(
   const destination = datasetPath(id);
   const raw = destination + "_raw";
   let uploadOk = false;
+  const checkAborted = () => {
+    if (signal?.aborted) throw new Error("Upload abgebrochen.");
+  };
   try {
+    checkAborted();
     await mkdir(raw, { recursive: true });
     const names = new Set<string>();
     const incoming = [...selectedFiles, ...folderFiles];
     onProgress({ step: "write", done: 0, total: incoming.length });
     for (const [index, file] of incoming.entries()) {
+      checkAborted();
       const isFolder = index >= selectedFiles.length;
       const relative = safeUploadPath(isFolder
         ? folderPaths[index - selectedFiles.length] || file.name
@@ -59,9 +65,11 @@ export async function importUpload(
       const target = path.join(raw, name);
       await mkdir(path.dirname(target), { recursive: true });
       await writeFile(target, Buffer.from(await file.arrayBuffer()));
+      checkAborted();
       onProgress({ step: "write", done: index + 1, total: incoming.length });
     }
-    const result = JSON.parse(await runPythonProgress(onProgress, "sort-files", raw, destination)) as ImportReport;
+    const result = JSON.parse(await runPythonProgress(onProgress, "sort-files", [raw, destination], signal)) as ImportReport;
+    checkAborted();
     if (result.processedFiles === 0) {
       await rm(destination, { recursive: true, force: true });
       return {
@@ -71,6 +79,7 @@ export async function importUpload(
       };
     }
     await writeFile(path.join(destination, "import-report.json"), JSON.stringify(result), "utf-8");
+    checkAborted();
     await registerDataset(sessionId, id);
     uploadOk = true;
   } catch (error) {

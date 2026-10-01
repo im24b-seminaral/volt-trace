@@ -29,11 +29,13 @@ const PROGRESS_PREFIX = "@progress ";
 export function runPythonProgress(
   onProgress: (event: PythonProgress) => void,
   command: string,
-  ...args: string[]
+  args: string[],
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new Error("Upload abgebrochen."));
     const child = spawn(python, ["-m", "volt_trace.cli", command, ...args], {
-      cwd: pythonDir, env: { ...process.env, VOLT_TRACE_PROGRESS: "1" },
+      cwd: pythonDir, env: { ...process.env, VOLT_TRACE_PROGRESS: "1" }, signal,
     });
     let stdout = "";
     let lastError = "";
@@ -50,7 +52,7 @@ export function runPythonProgress(
     });
     child.on("error", (cause) => {
       clearTimeout(timer);
-      reject(new Error(`Python-Verarbeitung fehlgeschlagen: ${cause.message}`));
+      reject(new Error(signal?.aborted ? "Upload abgebrochen." : `Python-Verarbeitung fehlgeschlagen: ${cause.message}`));
     });
     child.on("close", (code) => {
       clearTimeout(timer);
