@@ -1,3 +1,5 @@
+import { isDateInput } from "@/lib/chart-filters";
+
 export const DISPLAY_TZ = "Europe/Zurich";
 
 const dateFormatter = new Intl.DateTimeFormat("de-CH", {
@@ -94,6 +96,7 @@ function zurichLocalToUtc(
  * zurückgegeben als ISO-UTC-Strings für die Python-API.
  */
 export function localDayBoundsToUtcIso(dateYmd: string): { from: string; to: string } {
+  if (!isDateInput(dateYmd)) throw new Error(`Ungültiges Datum: ${dateYmd}`);
   const [y, m, d] = dateYmd.split("-").map(Number);
   if (!y || !m || !d) throw new Error(`Ungültiges Datum: ${dateYmd}`);
 
@@ -104,8 +107,9 @@ export function localDayBoundsToUtcIso(dateYmd: string): { from: string; to: str
 }
 
 export function localNextDayStartUtcIso(dateYmd: string): string {
-  const [y, m, d] = dateYmd.split("-").map(Number);
-  if (!y || !m || !d) throw new Error(`Ungültiges Datum: ${dateYmd}`);
-  const nextDay = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  if (!isDateInput(dateYmd)) throw new Error(`Ungültiges Datum: ${dateYmd}`);
+  const date = new Date(`${dateYmd}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + 1);
+  const nextDay = date.toISOString().slice(0, 10);
   return localDayBoundsToUtcIso(nextDay).from;
 }
