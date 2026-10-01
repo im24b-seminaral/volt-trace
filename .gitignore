@@ -90,6 +90,7 @@ Desktop.ini
 *.swp
 *.swo
 *~
+.vscode
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
@@ -106,4 +107,6 @@ XML-Files
 python/volt_trace/export/
 python/export/
 
+/nextjs/nextjs
 /nextjs/data/
+

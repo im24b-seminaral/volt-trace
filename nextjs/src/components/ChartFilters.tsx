@@ -26,8 +26,8 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
 
   return <>
     <input type="hidden" name="dataset" value={dataset} />
-    <div className="flex flex-wrap items-end justify-between gap-3">
-      <div className="flex flex-wrap items-end gap-3">
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end gap-3">
         <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
           <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
             const next = event.target.value;
