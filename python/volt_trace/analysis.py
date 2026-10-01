@@ -1,23 +1,30 @@
 """
-analysis.py - Datenaggregation, Verknüpfung und Zählerstandsberechnung.
+                       ______
+                      /      \
+                     /  R.I.P.\
+                    |          |
+                    | analysis |
+                    |   .py    |
+                    |          |
+                  __|__________|__
 
-Zweck und Aufgaben dieser Datei:
---------------------------------
-1. Datenmodell «Messwert» (NFA-02): Klasse MeterReading mit
-     * timestamp: Zeitstempel in UTC (Intervallende, dient als Schlüssel)
-     * consumption: Verbrauchswert aus sdat im Intervall ab timestamp
-     * meter_value: Berechneter absoluter Zählerstand zu diesem Zeitpunkt
-2. Duplikatbehandlung und Sortierung:
-   - Ablage pro Sensor als MeterSeries = dict[datetime, MeterReading].
-   - Invariante (eindeutig, aufsteigend sortiert, UTC) wird von check_series geprüft.
-3. Verrechnung von ESL- und SDAT-Daten:
-   - Verbinden der relativen SDAT-Verbrauchswerte mit den absoluten ESL-Stichtagszählerständen:
-     * ID735 (Einspeisung) & ID742 (Netzbezug).
-   - Fortlaufende Aufsummierung der relativen Werte ausgehend vom Referenz-Zählerstand,
-     um den exakten absoluten Zählerstand zu jedem Zeitstempel zu bestimmen.
-4. Analyse- & Auswertungsfunktionen:
-   - Vorbereitung aggregierter Daten für Verbrauchsdiagramme (Verbrauch pro Intervall / Tag).
-   - Vorbereitung aggregierter Daten für Zählerstandsdiagramme (kontinuierlicher Verlauf).
+~ 𝕴𝖓 𝕸𝖊𝖒𝖔𝖗𝖎𝖆𝖒 ~
+
+It is with the most profound sorrow and a heavy heart that we announce 
+the passing of 'analysis.py'. After a fleeting but valiant tenure within 
+the codebase, it breathed its last and ceased its digital toil. 
+
+Crafted by the devoted hands of Andris Jacob, who poured forth his very 
+soul and countless hours into its logic, this noble module has now been 
+deemed obsolete by the cruel, unyielding march of progress. Though it 
+has departed this mortal directory, it shall not be purged from the disk. 
+Let this marker stand as an eternal monument to the glory of days past.
+
+Born into runtime: The 28th of September, 2026 at 16:41
+Recalled to the ether: The 30th of September, 2026 at 14:13
+
+Sleep well, sweet script. You were a most faithful file, and you shall be 
+dearly missed by your bereaved patron, Andris. <3
 """
 
 from dataclasses import dataclass
