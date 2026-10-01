@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
 import { localDayBoundsToUtcIso } from "@/lib/datetime";
-import { datasetPath, runPython } from "@/lib/python";
+import { runPython } from "@/lib/python";
+import { DatasetAccessError, getOrCreateSession, resolveOwnedDatasetPath } from "@/lib/session";
 import type { Sensor, SensorSeries, DataPoint } from "@/lib/types";
 
 export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
@@ -15,7 +16,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const get = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
   const dataset = get("dataset");
   const kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
-  const resolution = get("resolution") === "15min" ? "15min" : "day";
+  // Zählerstände (ESL) werden nie aggregiert: keine Auflösungswahl, keine 31-Tage-Grenze (FA-09).
+  const resolution = kind === "consumption" && get("resolution") === "15min" ? "15min" : "day";
   const from = get("from");
   const to = get("to");
   let sensors: Sensor[] = [];
@@ -24,7 +26,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   let error = "";
   if (dataset) {
     try {
-      const directory = datasetPath(dataset);
+      const sessionId = await getOrCreateSession();
+      const directory = await resolveOwnedDatasetPath(sessionId, dataset);
       sensors = JSON.parse(await runPython("sensors", directory));
       if (!sensors.some((sensor) => sensor.sensorId === sensorId)) sensorId = sensors[0]?.sensorId ?? "";
       if (from && to && from > to) error = "Das Enddatum muss nach dem Startdatum liegen.";
@@ -40,7 +43,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       }
     } catch (cause) {
       console.error(cause);
-      error = "Daten konnten nicht geladen werden. Bitte Datensatz und Zeitraum prüfen.";
+      error = cause instanceof DatasetAccessError
+        ? "Dieser Datensatz gehört nicht zu Ihrer Sitzung."
+        : "Daten konnten nicht geladen werden. Bitte Datensatz und Zeitraum prüfen.";
     }
   }
   const sensor = sensors.find((item) => item.sensorId === sensorId);
@@ -80,8 +85,11 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption><NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
         </NativeSelect></div>
       </div>
-      <div className="flex gap-2"><Button disabled={!dataset}>Anzeigen</Button>
-        {sensor?.hasMeterReadings && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}`}>CSV exportieren</a></Button>}
+      <div className="flex flex-wrap items-center gap-2"><Button disabled={!dataset}>Anzeigen</Button>
+        {sensor && <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}?kind=verbrauch`}>Verbrauch (CSV)</a></Button>}
+        {sensor && (sensor.hasMeterReadings
+          ? <Button variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensorId)}?kind=zaehlerstand`}>Zählerstände (CSV)</a></Button>
+          : <p className="text-sm text-muted-foreground">Für {sensorId} liegen keine ESL-Zählerstände vor.</p>)}
       </div>
     </ChartForm>
   </main>;

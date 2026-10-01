@@ -20,15 +20,16 @@ export default function EnergyChart({
   return <div className="space-y-2">
     <p className="text-sm text-muted-foreground">{label} · Europe/Zurich</p>
     <ChartContainer config={{ value: { label, color: "var(--chart-2)" } }} className="h-80 w-full">
-      <ComposedChart accessibilityLayer data={data}>
+      <ComposedChart accessibilityLayer data={data} margin={{ bottom: 20, left: 8 }}>
         <CartesianGrid vertical={false} />
         <XAxis
           dataKey="ts"
           tickFormatter={(ts: string) => formatChartLabel(ts, resolution)}
           minTickGap={32}
           tickLine={false}
+          label={{ value: "Zeit (Europe/Zurich)", position: "insideBottom", offset: -15 }}
         />
-        <YAxis width={72} tickLine={false} />
+        <YAxis width={72} tickLine={false} label={{ value: "kWh", angle: -90, position: "insideLeft" }} />
         <ChartTooltip
           content={
             <ChartTooltipContent
@@ -38,7 +39,7 @@ export default function EnergyChart({
         />
         {kind === "bar"
           ? <Bar dataKey="value" fill="var(--color-value)" radius={2} isAnimationActive={false} />
-          : <Line dataKey="value" stroke="var(--color-value)" strokeWidth={2} dot={data.length === 1} isAnimationActive={false} />}
+          : <Line type="linear" dataKey="value" stroke="var(--color-value)" strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />}
       </ComposedChart>
     </ChartContainer>
   </div>;

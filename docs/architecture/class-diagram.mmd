@@ -1,0 +1,66 @@
+classDiagram
+    direction LR
+
+    class MeasuredValue {
+        <<sdat.py>>
+        +datetime timestamp
+        +int sequence
+        +float volume
+        +int resolution_minutes = 15
+    }
+
+    class EslMeterReading {
+        <<esl.py>>
+        +datetime start_time
+        +float start_value
+    }
+
+    class MeterReading {
+        <<analysis.py>>
+        +datetime timestamp
+        +float consumption
+        +float meter_value
+    }
+
+    class MeterSeries {
+        <<typedef analysis.py>>
+        Dict~datetime, MeterReading~
+    }
+
+    class EslComparison {
+        <<analysis.py>>
+        +str sensor_id
+        +datetime time
+        +float esl_value
+        +float calculated_value
+        +bool is_anchor
+    }
+
+    class DataPoint {
+        <<export.py>>
+        +datetime time
+        +float value
+        +to_unix() int
+    }
+
+    class JsonEntry {
+        <<export.py>>
+        +str ts
+        +float value
+    }
+
+    class SensorExport {
+        <<export.py>>
+        +str sensorId
+        +List~JsonEntry~ data
+        +from_points()$ SensorExport
+    }
+
+    MeterSeries "1" *-- "0..*" MeterReading : enthält
+    MeasuredValue ..> MeterReading : consumption
+    EslMeterReading ..> MeterReading : Anker meter_value
+    MeterReading ..> EslComparison : Vergleich berechnet
+    MeasuredValue ..> DataPoint : consumption_points
+    EslMeterReading ..> DataPoint : meter_points ESL-Ablesung
+    SensorExport "1" *-- "0..*" JsonEntry : enthält
+    SensorExport ..> DataPoint : from_points

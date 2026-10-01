@@ -18,6 +18,8 @@ Zweck und Aufgaben dieser Datei:
 
 import xml.etree.ElementTree as ET
 from typing import List, Dict
+
+from volt_trace.quantities import round_kwh
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -52,9 +54,7 @@ def _total_readings_by_obis_group(values: Dict[str, float]) -> Dict[str, float]:
     totals: Dict[str, float] = {}
     for group, register_values in by_group.items():
         if all(register in register_values for register in TARIFF_REGISTERS):
-            totals[group] = round(
-                register_values["1"] + register_values["2"], 4
-            )
+            totals[group] = round_kwh(register_values["1"] + register_values["2"])
     return totals
 
 
@@ -149,4 +149,7 @@ def load_esl_folder(folder_path: Path, skipped: List[dict] | None = None):
                                 "skippedRecords": len(invalid_rows)})
         for sensor_id, values in readings.items():
             all_readings.setdefault(sensor_id, []).extend(values)
-    return {sensor_id: remove_esl_duplicates(r) for sensor_id, r in all_readings.items()}
+    return {
+        sensor_id: sorted(remove_esl_duplicates(readings), key=lambda r: r.start_time)
+        for sensor_id, readings in all_readings.items()
+    }

@@ -10,4 +10,4 @@ Inhalt dieses Moduls:
   - CSV-, JSON- und HTTP-Exportfunktionen (export.py)
 """
 
-__version__ = "0.1.0"
+__version__ = "1.0.0"
