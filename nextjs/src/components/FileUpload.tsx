@@ -60,9 +60,8 @@ export default function FileUpload({ variant = "toolbar" }: { variant?: "toolbar
       else if (event.error) { finished = true; setUpload(null); setError(event.error); }
       else if (event.dataset) {
         finished = true;
-        // Die Karte bleibt stehen: die Seite lädt jetzt Sensoren und Messreihen,
-        // und das dauert bei grossen Datensätzen noch einige Sekunden.
-        router.push(`/?dataset=${event.dataset}`);
+        // Die Karte bleibt stehen, bis der Importbericht gerendert ist.
+        router.push(`/import/${event.dataset}`);
       }
     };
 

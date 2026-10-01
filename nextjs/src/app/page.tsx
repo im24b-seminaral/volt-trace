@@ -3,6 +3,7 @@ import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
 import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
+import ImportReport from "@/components/ImportReport";
 import { Button } from "@/components/ui/button";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
 import { dateRangeError, eligibleSensors, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
@@ -64,6 +65,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       <h1 className="text-2xl font-semibold">Messdaten</h1>
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {directory && <ImportReport dataset={dataset} directory={directory} />}
     <ChartForm chart={
       error ? null
         : kind === "consumption"
