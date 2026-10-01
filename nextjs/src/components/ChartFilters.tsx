@@ -6,7 +6,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange } from "@/lib/chart-filters";
+import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange, hasDataFor, sensorsFor } from "@/lib/chart-filters";
 import type { Sensor } from "@/lib/types";
 
 export default function ChartFilters({ dataset, sensors, selected, kind, from, to, resolution }: {
@@ -26,35 +26,38 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
 
   return <>
     <input type="hidden" name="dataset" value={dataset} />
-    <div className="flex items-end gap-2 overflow-x-auto pb-1">
-      <div className="shrink-0 space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
-        <NativeSelect id="kind" name="kind" className="w-32" value={chartKind} disabled={!sensors.length} onChange={(event) => {
-          const next = event.target.value;
-          const range = sensorDateRange(sensors, next);
-          setChartKind(next); setStart(range.first); setEnd(range.last);
-          submit(event.currentTarget.form);
-        }}>
-          <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
-          <NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
-        </NativeSelect>
+    <div className="flex flex-col gap-3">
+      <div className="flex items-end gap-3">
+        <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
+          <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
+            const next = event.target.value;
+            const range = sensorDateRange(sensorsFor(sensors, next), next);
+            setChartKind(next); setStart(range.first); setEnd(range.last);
+            submit(event.currentTarget.form);
+          }}>
+            <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
+            <NativeSelectOption value="meter-reading">Zählerstand</NativeSelectOption>
+          </NativeSelect>
+        </div>
+        {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
+        {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
+          <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
+            <NativeSelectOption value="day">Tag</NativeSelectOption>
+            <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
+              {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
+            </NativeSelectOption>
+          </NativeSelect>
+        </div> : <input type="hidden" name="resolution" value={resolution} />}
       </div>
-      {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
-      {chartKind === "consumption" ? <div className="shrink-0 space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
-        <NativeSelect id="resolution" name="resolution" className="w-32" defaultValue={resolution} disabled={!sensors.length}>
-          <NativeSelectOption value="day">Tag</NativeSelectOption>
-          <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
-            {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
-          </NativeSelectOption>
-        </NativeSelect>
-      </div> : <input type="hidden" name="resolution" value={resolution} />}
-        <div className="shrink-0 space-y-1.5"><Label htmlFor="from">Von</Label>
-          <Input id="from" name="from" type="date" className="w-32 px-2 text-sm" value={start} required
-            min={first} max={end || last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
+      <div className="flex flex-wrap items-end justify-end gap-3">
+        <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
+          <Input id="from" name="from" type="date" className="w-40" value={start} required
+            min={first} max={end || last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setStart(event.currentTarget.value)} />
         </div>
-        <div className="shrink-0 space-y-1.5"><Label htmlFor="to">Bis</Label>
-          <Input id="to" name="to" type="date" className="w-32 px-2 text-sm" value={end} required
-            min={start || first} max={last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
+        <div className="space-y-1.5"><Label htmlFor="to">Bis</Label>
+          <Input id="to" name="to" type="date" className="w-40" value={end} required
+            min={start || first} max={last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setEnd(event.currentTarget.value)} />
         </div>
         <div className="flex shrink-0 gap-1">
@@ -70,11 +73,23 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
     {error && sensors.length > 0 && <p id="date-error" role="alert" className="text-sm text-destructive">{error}</p>}
     <p className="pt-2 text-sm text-muted-foreground">{chartKind === "consumption" ? "Verbrauch" : "Zählerstand"} (kWh) · Europe/Zurich</p>
     <div className="flex flex-wrap justify-center gap-4" role="group" aria-label="Sensoren">
-      {sensors.map((sensor) => <Label key={sensor.sensorId} className="flex cursor-pointer items-center gap-2">
-        <Checkbox name="sensor" value={sensor.sensorId} defaultChecked={selected.includes(sensor.sensorId)}
-          style={{ borderColor: sensorColor(sensor.sensorId), backgroundColor: selected.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined }} />
-        {sensor.label}
-      </Label>)}
+      {sensors.map((sensor) => {
+        const available = hasDataFor(sensor, chartKind);
+        return <Label key={sensor.sensorId} className="flex cursor-pointer items-center gap-2">
+          <Checkbox name="sensor" value={sensor.sensorId}
+            defaultChecked={selected.includes(sensor.sensorId)}
+            style={{
+              borderColor: sensorColor(sensor.sensorId),
+              backgroundColor: selected.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined
+            }} />
+          <span className={available ? undefined : "text-muted-foreground"}>
+            {sensor.label}
+            {!available && <span className="ml-1 text-xs">
+              ({chartKind === "consumption" ? "kein Verbrauch" : "keine Zählerstände"})
+            </span>}
+          </span>
+        </Label>;
+      })}
     </div>
   </>;
 }

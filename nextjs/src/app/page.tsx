@@ -9,8 +9,10 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
-import { dateRangeError, eligibleSensors, parseResolution, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
-import { runPython } from "@/lib/python";
+import {
+  dateRangeError, hasDataFor, importedSensors, parseResolution,
+  rangeResolution, sensorDateRange, sensorsFor
+} from "@/lib/chart-filters"; import { runPython } from "@/lib/python";
 import { DatasetAccessError, getOrCreateSession, resolveOwnedDatasetPath } from "@/lib/session";
 import type { Sensor, SensorSeries } from "@/lib/types";
 
@@ -18,7 +20,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const query = await searchParams;
   const get = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
   const dataset = get("dataset");
-  const kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
+  let kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
+  let drawable: string[] = [];
+  let notice = "";
   let consumptionResolution: "day" | "15min" = "day";
   let resolution: "day" | "15min" = "day";
   let from = get("from");
@@ -32,22 +36,39 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     try {
       const sessionId = await getOrCreateSession();
       directory = await resolveOwnedDatasetPath(sessionId, dataset);
-      sensors = eligibleSensors(JSON.parse(await runPython("sensors", directory)));
-      selected = [...new Set(selected)].filter((id) => sensors.some((sensor) => sensor.sensorId === id));
-      if (query.sensor === undefined) selected = sensors.slice(0, 1).map((sensor) => sensor.sensorId);
-      const { first, last } = sensorDateRange(sensors, kind);
+      sensors = importedSensors(JSON.parse(await runPython("sensors", directory)));
+
+      // Nur-ESL-Upload: dann ist Zählerstand die sinnvolle Startansicht.
+      if (!get("kind") && !sensorsFor(sensors, "consumption").length) kind = "meter-reading";
+
+      const withData = sensorsFor(sensors, kind);
+      selected = [...new Set(selected)].filter((id) => sensors.some((s) => s.sensorId === id));
+      if (query.sensor === undefined) selected = withData.slice(0, 1).map((s) => s.sensorId);
+
+      const { first, last } = sensorDateRange(withData, kind);
       from = from || first;
       to = to || last;
       consumptionResolution = parseResolution(get("resolution"), from, to);
       resolution = kind === "consumption" ? consumptionResolution : rangeResolution(from, to);
-      error = !sensors.length ? "Keine Sensoren mit SDAT- und ESL-Daten vorhanden."
+
+      drawable = selected.filter((id) => withData.some((s) => s.sensorId === id));
+      const missing = selected.filter((id) => !drawable.includes(id));
+
+      error = !sensors.length ? "Keine Sensoren mit auswertbaren Daten vorhanden."
         : !selected.length ? "Bitte mindestens einen Sensor auswählen."
-        : dateRangeError(from, to, first, last);
-      if (selected.length && !error) {
+          : drawable.length ? dateRangeError(from, to, first, last) : "";
+
+      // FA-09: fehlende Daten benennen, statt Werte zu erfinden.
+      notice = missing.length
+        ? kind === "consumption"
+          ? `Keine Verbrauchsdaten für ${missing.join(", ")}. Verbrauch braucht SDAT-Dateien.`
+          : `Keine Zählerstände für ${missing.join(", ")}. Zählerstände brauchen ESL-Dateien.`
+        : "";
+      if (drawable.length && !error) {
         const fromUtc = from ? localDayBoundsToUtcIso(from).from : "";
         const toUtc = to ? (kind === "consumption" ? localNextDayStartUtcIso(to)
           : localDayBoundsToUtcIso(to).to) : "";
-        series = (await Promise.all(selected.map(async (sensorId): Promise<SensorSeries[]> =>
+        series = (await Promise.all(drawable.map(async (sensorId): Promise<SensorSeries[]> =>
           JSON.parse(await runPython("series", directory, sensorId, kind, resolution, fromUtc, toUtc))
         ))).flat();
       }
@@ -73,8 +94,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       </Button>}
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    {notice && <p role="status" className="text-sm text-muted-foreground">{notice}</p>}
     <ChartForm chart={
-      error ? null
+      error || !drawable.length ? null
         : kind === "consumption"
           ? <ConsumptionChart data={series} resolution={resolution} />
           : <MeterReadingChart data={series} resolution={resolution} />
