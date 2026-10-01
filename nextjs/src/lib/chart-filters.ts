@@ -26,9 +26,18 @@ export function rangeDays(from: string, to: string): number {
   return isDateInput(from) && isDateInput(to) ? (Date.parse(to) - Date.parse(from)) / 86400000 + 1 : 0;
 }
 
+/** Longer 15-minute series are too dense for the chart. */
+export const maxDetailDays = 7;
+
+/** Only for meter-reading labels; ESL readings are never aggregated. */
 export function rangeResolution(from: string, to: string): "15min" | "day" {
   const days = rangeDays(from, to);
-  return days > 0 && days <= 7 ? "15min" : "day";
+  return days > 0 && days <= maxDetailDays ? "15min" : "day";
+}
+
+/** FA-08: consumption defaults to daily values; 15-minute detail only on request and up to maxDetailDays. */
+export function parseResolution(value: string, from: string, to: string): "15min" | "day" {
+  return value === "15min" && rangeResolution(from, to) === "15min" ? "15min" : "day";
 }
 
 export const datePresets = ["7 Tage", "Monat", "Jahr", "Alles"] as const;

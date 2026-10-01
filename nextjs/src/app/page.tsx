@@ -5,7 +5,7 @@ import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
 import { Button } from "@/components/ui/button";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
-import { dateRangeError, eligibleSensors, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
+import { dateRangeError, eligibleSensors, parseResolution, rangeResolution, sensorDateRange } from "@/lib/chart-filters";
 import { runPython } from "@/lib/python";
 import { DatasetAccessError, getOrCreateSession, resolveOwnedDatasetPath } from "@/lib/session";
 import type { Sensor, SensorSeries } from "@/lib/types";
@@ -15,6 +15,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   const get = (key: string) => typeof query[key] === "string" ? query[key] as string : "";
   const dataset = get("dataset");
   const kind = get("kind") === "meter-reading" ? "meter-reading" : "consumption";
+  let consumptionResolution: "day" | "15min" = "day";
   let resolution: "day" | "15min" = "day";
   let from = get("from");
   let to = get("to");
@@ -33,7 +34,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       const { first, last } = sensorDateRange(sensors, kind);
       from = from || first;
       to = to || last;
-      resolution = rangeResolution(from, to);
+      consumptionResolution = parseResolution(get("resolution"), from, to);
+      resolution = kind === "consumption" ? consumptionResolution : rangeResolution(from, to);
       error = !sensors.length ? "Keine Sensoren mit SDAT- und ESL-Daten vorhanden."
         : !selected.length ? "Bitte mindestens einen Sensor auswählen."
         : dateRangeError(from, to, first, last);
@@ -70,9 +72,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           ? <ConsumptionChart data={series} resolution={resolution} />
           : <MeterReadingChart data={series} resolution={resolution} />
     }>
-      <ChartFilters key={[dataset, kind, from, to, ...selected].join("|")}
+      <ChartFilters key={[dataset, kind, from, to, consumptionResolution, ...selected].join("|")}
         dataset={dataset} sensors={sensors} selected={selected} kind={kind}
-        from={from} to={to} />
+        from={from} to={to} resolution={consumptionResolution} />
     </ChartForm>
     <div className="flex flex-wrap gap-2">
       {sensors.filter((sensor) => selected.includes(sensor.sensorId)).map((sensor) => <div key={sensor.sensorId} className="flex flex-wrap items-center gap-2">
