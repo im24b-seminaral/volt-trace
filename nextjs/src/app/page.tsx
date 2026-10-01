@@ -10,9 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
 import {
-  dateRangeError, hasDataFor, importedSensors, parseResolution,
-  rangeResolution, sensorDateRange, sensorsFor
-} from "@/lib/chart-filters"; import { runPython } from "@/lib/python";
+  datePresets, dateRangeError, importedSensors, parseResolution, presetRange,
+  rangeResolution, selectedDateRange, sensorDateRange, sensorsFor, type DatePreset
+} from "@/lib/chart-filters";
+import { runPython } from "@/lib/python";
 import { DatasetAccessError, getOrCreateSession, resolveOwnedDatasetPath } from "@/lib/session";
 import type { Sensor, SensorSeries } from "@/lib/types";
 
@@ -27,6 +28,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
   let resolution: "day" | "15min" = "day";
   let from = get("from");
   let to = get("to");
+  let period = datePresets.includes(get("period") as DatePreset) ? get("period") as DatePreset : "";
   let sensors: Sensor[] = [];
   let selected = typeof query.sensor === "string" ? [query.sensor] : query.sensor ?? [];
   let series: SensorSeries[] = [];
@@ -45,7 +47,15 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
       selected = [...new Set(selected)].filter((id) => sensors.some((s) => s.sensorId === id));
       if (query.sensor === undefined) selected = withData.slice(0, 1).map((s) => s.sensorId);
 
-      const { first, last } = sensorDateRange(withData, kind);
+      const { first, last } = selectedDateRange(sensors, selected, kind);
+      const allDates = sensorDateRange(withData, kind);
+      // Older URLs have no period; recognise the former full-dataset range.
+      if (query.period === undefined && ((!from && !to) || (from === allDates.first && to === allDates.last))) period = "Alles";
+      if (period) {
+        const range = presetRange(period as DatePreset, to || last, first, last);
+        from = range.from;
+        to = range.to;
+      }
       from = from || first;
       to = to || last;
       consumptionResolution = parseResolution(get("resolution"), from, to);
@@ -101,9 +111,9 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           ? <ConsumptionChart data={series} resolution={resolution} />
           : <MeterReadingChart data={series} resolution={resolution} />
     }>
-      <ChartFilters key={[dataset, kind, from, to, consumptionResolution, ...selected].join("|")}
+      <ChartFilters key={[dataset, kind, from, to, period, consumptionResolution, ...selected].join("|")}
         dataset={dataset} sensors={sensors} selected={selected} kind={kind}
-        from={from} to={to} resolution={consumptionResolution} />
+        from={from} to={to} resolution={consumptionResolution} period={period} />
     </ChartForm>
     <div className="flex flex-col items-start gap-2">
       {sensors.filter((sensor) => selected.includes(sensor.sensorId)).map((sensor) => <div key={sensor.sensorId} className="flex flex-wrap items-center gap-2">

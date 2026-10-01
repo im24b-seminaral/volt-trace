@@ -24,8 +24,22 @@ export function sensorsFor(sensors: Sensor[], kind: string): Sensor[] {
 }
 
 export function sensorDateRange(sensors: Sensor[], kind: string) {
-  const dates = sensors.flatMap((sensor) => kind === "consumption" ? sensor.consumptionDates : sensor.meterReadingDates).sort();
+  const dates = sensorsFor(sensors, kind).flatMap((sensor) => kind === "consumption" ? sensor.consumptionDates : sensor.meterReadingDates).filter(isDateInput).sort();
   return { first: dates[0] ?? "", last: dates.at(-1) ?? "" };
+}
+
+/** Use the union of selected sensors' dates, never their intersection. */
+export function selectedDateRange(sensors: Sensor[], selected: string[], kind: string) {
+  return sensorDateRange(selected.length ? sensors.filter((sensor) => selected.includes(sensor.sensorId)) : sensors, kind);
+}
+
+/** Keep a custom range's overlap when sensors change; reset if the dates are disjoint. */
+export function adjustDateRange(from: string, to: string, first: string, last: string) {
+  if (!first || !last) return { from: "", to: "" };
+  if (!isDateInput(from) || !isDateInput(to) || from > to || to < first || from > last) {
+    return { from: first, to: last };
+  }
+  return { from: from < first ? first : from, to: to > last ? last : to };
 }
 
 export function dateRangeError(from: string, to: string, first: string, last: string): string {
@@ -37,7 +51,7 @@ export function dateRangeError(from: string, to: string, first: string, last: st
 }
 
 export function rangeDays(from: string, to: string): number {
-  return isDateInput(from) && isDateInput(to) ? (Date.parse(to) - Date.parse(from)) / 86400000 + 1 : 0;
+  return isDateInput(from) && isDateInput(to) && from <= to ? (Date.parse(to) - Date.parse(from)) / 86400000 + 1 : 0;
 }
 
 /** Longer 15-minute series are too dense for the chart. */
@@ -59,6 +73,7 @@ export type DatePreset = typeof datePresets[number];
 
 /** Inclusive calendar ranges, ending on Bis; clamp shortcuts to available data. */
 export function presetRange(preset: DatePreset, end: string, first: string, last: string) {
+  if (!isDateInput(first) || !isDateInput(last) || first > last) return { from: "", to: "" };
   if (preset === "Alles") return { from: first, to: last };
   const to = isDateInput(end) ? (end < first ? first : end > last ? last : end) : last;
   const date = new Date(`${to}T00:00:00Z`);

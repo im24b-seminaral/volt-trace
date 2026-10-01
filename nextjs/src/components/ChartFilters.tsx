@@ -1,37 +1,39 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select";
-import { datePresets, dateRangeError, maxDetailDays, presetRange, rangeDays, sensorColor, sensorDateRange, hasDataFor, sensorsFor } from "@/lib/chart-filters";
+import { adjustDateRange, datePresets, dateRangeError, maxDetailDays, parseResolution, presetRange, rangeDays, sensorColor, selectedDateRange, hasDataFor, type DatePreset } from "@/lib/chart-filters";
 import type { Sensor } from "@/lib/types";
 
-export default function ChartFilters({ dataset, sensors, selected, kind, from, to, resolution }: {
-  dataset: string; sensors: Sensor[]; selected: string[]; kind: string; from: string; to: string; resolution: string;
+export default function ChartFilters({ dataset, sensors, selected, kind, from, to, resolution, period }: {
+  dataset: string; sensors: Sensor[]; selected: string[]; kind: string; from: string; to: string; resolution: string; period: string;
 }) {
   const [chartKind, setChartKind] = useState(kind);
-  const { first, last } = sensorDateRange(sensors, chartKind);
+  const kindInput = useRef<HTMLSelectElement>(null);
+  const [selection, setSelection] = useState(selected);
+  const [activePreset, setActivePreset] = useState(period);
+  const [detail, setDetail] = useState(resolution);
+  const { first, last } = selectedDateRange(sensors, selection, chartKind);
   const [start, setStart] = useState(from || first);
   const [end, setEnd] = useState(to || last);
   const error = dateRangeError(start, end, first, last);
   const days = rangeDays(start, end);
-  const activePreset = start === first && end === last ? "Alles" : datePresets.find((preset) => {
-    const range = presetRange(preset, end, first, last);
-    return start === range.from && end === range.to;
-  });
   const submit = (form: HTMLFormElement | null) => requestAnimationFrame(() => form?.requestSubmit());
 
   return <>
     <input type="hidden" name="dataset" value={dataset} />
+    <input type="hidden" name="period" value={activePreset} />
     <div className="flex items-end gap-2 overflow-x-auto pb-1">
         <div className="shrink-0 space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
-          <NativeSelect id="kind" name="kind" className="w-32" value={chartKind} disabled={!sensors.length} onChange={(event) => {
+          <NativeSelect ref={kindInput} id="kind" name="kind" className="w-32" value={chartKind} disabled={!sensors.length} onChange={(event) => {
             const next = event.target.value;
-            const range = sensorDateRange(sensorsFor(sensors, next), next);
+            const range = selectedDateRange(sensors, selection, next);
             setChartKind(next); setStart(range.first); setEnd(range.last);
+            setActivePreset("Alles");
             submit(event.currentTarget.form);
           }}>
             <NativeSelectOption value="consumption">Verbrauch</NativeSelectOption>
@@ -40,7 +42,8 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
         </div>
         {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
         {chartKind === "consumption" ? <div className="shrink-0 space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
-          <NativeSelect id="resolution" name="resolution" className="w-32" defaultValue={resolution} disabled={!sensors.length}>
+          <NativeSelect id="resolution" name="resolution" className="w-32" value={parseResolution(detail, start, end)} disabled={!first || !last}
+            onChange={(event) => setDetail(event.target.value)}>
             <NativeSelectOption value="day">Tag</NativeSelectOption>
             <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
               {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
@@ -50,19 +53,19 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
         <div className="shrink-0 space-y-1.5"><Label htmlFor="from">Von</Label>
           <Input id="from" name="from" type="date" className="w-32 px-2 text-sm" value={start} required
             min={first} max={end || last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
-            onInput={(event) => setStart(event.currentTarget.value)} />
+            onInput={(event) => { setStart(event.currentTarget.value); setActivePreset(""); }} />
         </div>
         <div className="shrink-0 space-y-1.5"><Label htmlFor="to">Bis</Label>
           <Input id="to" name="to" type="date" className="w-32 px-2 text-sm" value={end} required
             min={start || first} max={last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
-            onInput={(event) => setEnd(event.currentTarget.value)} />
+            onInput={(event) => { setEnd(event.currentTarget.value); setActivePreset(""); }} />
         </div>
         <div className="flex shrink-0 gap-1">
           {datePresets.map((preset) => <Button key={preset} type="button" className="px-2 text-xs"
             variant={activePreset === preset ? "secondary" : "outline"} aria-pressed={activePreset === preset}
             disabled={!last} onClick={(event) => {
               const range = presetRange(preset, end, first, last);
-              setStart(range.from); setEnd(range.to); submit(event.currentTarget.form);
+              setStart(range.from); setEnd(range.to); setActivePreset(preset); submit(event.currentTarget.form);
             }}>{preset}</Button>)}
         </div>
         {!error && <span className="w-20 shrink-0 whitespace-nowrap py-1 text-right text-sm tabular-nums text-muted-foreground">{days} {days === 1 ? "Tag" : "Tage"}</span>}
@@ -74,10 +77,19 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
         const available = hasDataFor(sensor, chartKind);
         return <Label key={sensor.sensorId} className="flex cursor-pointer items-center gap-2">
           <Checkbox name="sensor" value={sensor.sensorId}
-            defaultChecked={selected.includes(sensor.sensorId)}
+            checked={selection.includes(sensor.sensorId)}
+            onCheckedChange={(checked) => {
+              const next = checked === true ? [...selection, sensor.sensorId] : selection.filter((id) => id !== sensor.sensorId);
+              const bounds = selectedDateRange(sensors, next, chartKind);
+              const range = activePreset
+                ? presetRange(activePreset as DatePreset, bounds.last, bounds.first, bounds.last)
+                : adjustDateRange(start, end, bounds.first, bounds.last);
+              setSelection(next); setStart(range.from); setEnd(range.to);
+              submit(kindInput.current?.form ?? null);
+            }}
             style={{
               borderColor: sensorColor(sensor.sensorId),
-              backgroundColor: selected.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined
+              backgroundColor: selection.includes(sensor.sensorId) ? sensorColor(sensor.sensorId) : undefined
             }} />
           <span className={available ? undefined : "text-muted-foreground"}>
             {sensor.label}
@@ -87,7 +99,6 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
           </span>
         </Label>;
       })}
-    </div>
     </div>
   </>;
 }
