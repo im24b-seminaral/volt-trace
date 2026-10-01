@@ -60,7 +60,7 @@ Die Anwendung:
 
 - **Kein separater Python-HTTP-Server** für die Standard-Oberfläche: Next.js startet bei Bedarf Subprozesse (`nextjs/src/lib/python.ts`).
 - Hochgeladene Datensätze liegen **nur zur Laufzeit** unter dem konfigurierbaren Datenverzeichnis (Standard: OS-Temp `volt-trace-data/<UUID>/` mit `sdat/`, `esl/` und `.processed-v1.cache`), nicht im Git-Repository.
-- Jede Browser-Sitzung (`vt_session`-Cookie) darf nur eigene Dataset-IDs lesen/exportieren; Verarbeitung erfolgt ausschließlich lokal (Next.js + Python-Subprozess, kein Netzwerkport in Python).
+- Jede Browser-Sitzung (`vt_session`-Cookie) darf nur eigene Dataset-IDs lesen/exportieren; Verarbeitung erfolgt ausschliesslich lokal (Next.js + Python-Subprozess, kein Netzwerkport in Python).
 
 ---
 
@@ -175,7 +175,7 @@ Plattformen: **Windows / macOS / Linux**. Node **22** oder älter löst bei `npm
 | Python Dev/Test | `pytest==8.4.2` ([`python/requirements.txt`](python/requirements.txt)) |
 | Frontend Runtime | Next.js, React, Radix UI, Recharts, Lucide, Tailwind (via PostCSS), `clsx`, `class-variance-authority`, `tailwind-merge`, `tw-animate-css` — siehe [`nextjs/package.json`](nextjs/package.json) `dependencies` |
 | Generator/Build | `shadcn` (CLI), TypeScript, `@tailwindcss/postcss`, `tailwindcss` — nur `devDependencies` |
-| Nicht erlaubt / ungenutzt | pandas, openpyxl, FastAPI, uvicorn, `cn`, `requests` (bis FA-12) |
+| Nicht erlaubt / ungenutzt | pandas, openpyxl, FastAPI, uvicorn, `cn`, `requests` (HTTP POST erfolgt in Next.js) |
 
 Direkte npm-/pip-Versionen sind **exakt** gepinnt; transitive Abhängigkeiten stehen im Lockfile.
 
@@ -244,7 +244,7 @@ Upload-Grösse: Server Actions erlauben grosse Bodies (`bodySizeLimit` in `next.
 - **Keine Konten:** Zugriff über HttpOnly-Cookie `vt_session` (Browser-Session-Cookie).
 - **Eigentümerschaft:** `?dataset=<UUID>` allein reicht nicht — Diagramm und CSV prüfen, ob die UUID zur aktuellen Sitzung gehört (fremde IDs → Fehlermeldung bzw. HTTP 403 beim Export).
 - **Speicherort:** `VOLT_TRACE_DATA_DIR` (optional); sonst `%TEMP%/volt-trace-data` (Windows) bzw. `/tmp/volt-trace-data` (Unix).
-- **Sitzungsende:** „Sitzung beenden und Daten löschen“ entfernt die Sitzungsdatei und alle zugehörigen Datensätze samt Cache sofort. Danach sind Diagramm und CSV-Download für diese Datensätze gesperrt. Ein offener Browser hält die Sitzung alle 30 Sekunden aktiv; nach Schließen aller Tabs endet sie spätestens nach 2 Minuten Inaktivität (`SESSION_IDLE_TTL_MS` konfigurierbar). Das Schließen des Browsers kann der Server nicht zuverlässig sofort erkennen.
+- **Sitzungsende:** „Sitzung beenden und Daten löschen“ entfernt die Sitzungsdatei und alle zugehörigen Datensätze samt Cache sofort. Danach sind Diagramm und CSV-Download für diese Datensätze gesperrt. Ein offener Browser hält die Sitzung alle 30 Sekunden aktiv; nach Schliessen aller Tabs endet sie spätestens nach 2 Minuten Inaktivität (`SESSION_IDLE_TTL_MS` konfigurierbar). Das Schliessen des Browsers kann der Server nicht zuverlässig sofort erkennen.
 - **Aufräumen:** Ein Server-Timer bereinigt abgelaufene Sitzungen samt XML und Cache alle 30 Sekunden, auch ohne weitere Anfragen. Beim Serverstart wird die Bereinigung erneut ausgeführt; während der Server ausgeschaltet ist, kann er keine Dateien löschen. Abgebrochene oder fehlgeschlagene Uploads entfernen ihre Arbeitsdateien und Datensatzordner. Nach einem erzwungenen Prozessabbruch werden nicht registrierte Arbeitsordner spätestens fünf Minuten nach ihrer letzten Änderung beim nächsten Serverstart bzw. Timerlauf entfernt.
 - **Abnahme (manuell):** Zwei Browser-Profile mit gleicher Dataset-URL → nur Besitzer sieht Daten; nach Sitzungsende oder TTL keine XML/Cache-Reste unter `VOLT_TRACE_DATA_DIR`.
 
@@ -336,15 +336,17 @@ timestamp,value
 1503496202,82.0500
 ```
 
-### JSON (FA-13, Vorbereitung FA-12)
+### JSON und HTTP POST (FA-12 / FA-13)
 
 | Funktion | Rückgabe | Zweck |
 |---|---|---|
-| `to_json_payload(data)` | `list` | Python-Liste im JSON-Format, z. B. als Body für den späteren HTTP POST (`requests.post(url, json=payload)`) |
+| `to_json_payload(data)` | `list` | Python-Liste im JSON-Format für Download und HTTP POST |
 | `to_json_string(data)` | `str` | JSON-Text, z. B. für einen Download |
 | `export_json(data, target_file: Path)` | `Path` | schreibt **alle** Sensoren in **eine** Datei, erstellt den Ordner falls nötig |
 
 Format gemäss Vorgabe des Auftraggebers: `ts` ist der Unix-Epoch als **String**, `value` der absolute Zählerstand (auf 4 Stellen gerundet). Sensoren sind nach Kennung sortiert.
+
+In jeder Sensor-Exportzeile gibt es getrennte **SDAT (HTTP POST)**- und **ESL (HTTP POST)**-Schaltflächen. Nach Eingabe einer HTTP-/HTTPS-Zieladresse sendet Next.js das jeweilige JSON (`[{sensorId, data: [{ts, value}]}]`) und zeigt die Antwort des Zielservers an.
 
 ```json
 [
@@ -417,7 +419,7 @@ Kurzstatus gegen die Seminar-Spezifikation (ohne Gewähr auf Vollständigkeit de
 | FA-08–09 | Verbrauchs- / Zählerstandsdiagramm | Web-UI mit Recharts |
 | FA-10 | CSV-Export | Ja (CLI + Download) |
 | FA-11 | Klassen-/Komponentendiagramm | Dokumentation ausserhalb des Repos |
-| FA-12–13 | JSON HTTP POST / JSON-Datei | JSON-Datei via `main.py`; HTTP POST offen |
+| FA-12–13 | JSON HTTP POST / JSON-Datei | JSON-Datei und getrennte SDAT-/ESL-POST-Aktionen in der Web-UI |
 
 ---
 
@@ -439,7 +441,6 @@ Python-Abhängigkeiten: keine zur Laufzeit (nur Standardbibliothek); `requiremen
 - SDAT-Deduplizierung über alle Dateien nach `Creation` (aufsteigend), letzter Wert gewinnt
 - Rückwärtsrechnung und Validierung an allen ESL-Stichtagen (&lt; 0,001 kWh)
 - Generische Sensor-IDs (nicht nur ID735/ID742)
-- HTTP-POST-Export (FA-12) und einheitliches JSON-Schema zwischen Export und API
 
 ---
 

@@ -45,7 +45,7 @@ Was laut **Pflichtenheft v1.0** (Gruppe 3, Energieagentur Bünzli) noch fehlt od
 ## 7. Offene Fragen an den Auftraggeber
 
 - [ ] **F3:** Duplikatregel Creation → FA-06
-- [ ] **F4:** HTTP POST Ziel → FA-12 (Nice-to-have)
+- [x] **F4:** HTTP-POST-Ziel wird vor dem Senden in der Web-UI eingegeben.
 - [ ] **F8:** Gewichtung ja/nein → optional FA-07
 - [ ] **F12 / FA-14:** Öffentliche Domain
 - [x] **F13 (Umsetzung Anzeige):** Diagramm/Zeitraum **Europe/Zurich** in Next.js (#12 README); API/CSV weiter UTC — siehe PYTHON.md
@@ -65,7 +65,7 @@ Unverändert (PDF, Präsentation, IPERKA-Doku L4 …).
 ## 10. Liefergegenstände Diagramme (FA-11)
 
 - [x] **FA-11:** Klassen- und Komponentendiagramm unter [docs/architecture/](docs/architecture/) (#14); Abgleich mit Commit `387b998`.
-- [ ] **FA-12 (Nice to have):** HTTP POST (`send_json`), UI-Status — optional.
+- [x] **FA-12 (Nice to have):** Getrennte SDAT-/ESL-POST-Aktionen mit Zieladresse und Anzeige der Serverantwort.
 - [ ] **FA-14 (Nice to have):** öffentlicher Betrieb nach F12.
 
 ## 11. Befunde an #12 (nur Lesen in #14 — keine Code-Änderung hier)

@@ -3,6 +3,7 @@ import ConsumptionChart from "@/components/ConsumptionChart";
 import MeterReadingChart from "@/components/MeterReadingChart";
 import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
+import HttpPostExport from "@/components/HttpPostExport";
 import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -88,6 +89,8 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
           <CollapsibleContent className="flex flex-wrap gap-2">
             {sensor.hasConsumption && ["csv", "json"].map((format) => <Button key={format} variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=verbrauch&format=${format}`}>Verbrauch ({format.toUpperCase()})</a></Button>)}
             {sensor.hasMeterReadings && ["csv", "json"].map((format) => <Button key={format} variant="outline" asChild><a href={`/download/${dataset}/${encodeURIComponent(sensor.sensorId)}?kind=zaehlerstand&format=${format}`}>Zählerstände ({format.toUpperCase()})</a></Button>)}
+            <HttpPostExport dataset={dataset} sensorId={sensor.sensorId}
+              hasConsumption={sensor.hasConsumption} hasMeterReadings={sensor.hasMeterReadings} />
           </CollapsibleContent>
         </Collapsible>
       </div>)}
