@@ -55,6 +55,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
         : "Daten konnten nicht geladen werden. Bitte Datensatz und Zeitraum prüfen.";
     }
   }
+  if (!dataset) return <main className="mx-auto max-w-3xl space-y-8 p-5 py-16 sm:p-8 sm:py-24">
+    <div className="space-y-2 text-center">
+      <h1 className="text-3xl font-semibold tracking-tight">Messdaten auswerten</h1>
+      <p className="text-muted-foreground">SDAT- und ESL-Dateien einlesen, um Verbrauch und Zählerstände zu erkunden und zu exportieren.</p>
+    </div>
+    <FileUpload variant="start" />
+  </main>;
   return <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-8">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h1 className="text-2xl font-semibold">Messdaten</h1>
@@ -63,8 +70,7 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {directory && <ImportReport directory={directory} />}
     <ChartForm chart={
-      !dataset ? <p className="py-24 text-center text-muted-foreground">XML-Dateien oder Ordner wählen.</p>
-        : error ? null
+      error ? null
         : kind === "consumption"
           ? <ConsumptionChart data={series} resolution={resolution} />
           : <MeterReadingChart data={series} resolution={resolution} />
