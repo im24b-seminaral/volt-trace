@@ -1,11 +1,8 @@
 import json
 import zipfile
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from volt_trace import cli
-from volt_trace.analysis import MeterReading
-from volt_trace.esl import EslMeterReading
 from volt_trace.sdat import load_sdat_folder
 
 
@@ -77,6 +74,18 @@ def test_folder_and_zip_import_keep_nested_files_and_metadata(tmp_path, capsys):
         assert {issue["kind"] for issue in report["issues"]} == {"file", "record"}
         assert any(issue["status"] == "E" and issue["obis"] == "1-1:2.8.1"
                    for issue in report["issues"] if issue["kind"] == "record")
+        assert report["files"] == [
+            {"type": "sdat", "found": 3, "processed": 2, "skipped": 1},
+            {"type": "esl", "found": 1, "processed": 1, "skipped": 0},
+            {"type": "other", "found": 3, "processed": 0, "skipped": 3},
+        ]
+        assert report["measurementPoints"] == 1
+        assert report["sensors"] == [
+            {"sensorId": "ID742", "direction": "consumption", "values": 1,
+             "from": "2024-01-01", "to": "2024-01-01", "eslReadings": 1},
+        ]
+        assert all({"label", "text"} == set(finding) for finding in report["findings"])
+        assert [finding["label"] for finding in report["findings"]] == ["Duplikate"]
 
     assert [value.volume for value in folder_sdat["ID742"]] == [2.5]
     assert [value.volume for value in zip_sdat["ID742"]] == [2.5]
@@ -135,11 +144,36 @@ def test_equal_creation_uses_relative_path_to_break_tie(tmp_path):
     assert len(readings.sources) == 2
 
 
-def test_factor_three_discrepancy_is_a_finding_not_a_parse_error():
-    first = datetime(2024, 1, 1, tzinfo=timezone.utc)
-    last = first + timedelta(days=1)
-    series = {first: MeterReading(first, 0, 100), last: MeterReading(last, 0, 130)}
-    esl = {"ID742": [EslMeterReading(first, 100), EslMeterReading(last, 110)]}
-    findings = cli._measurement_findings({"ID742": series}, esl)
-    assert len(findings) == 1
-    assert "Faktor 3" in findings[0]
+def test_duplicate_path_is_counted_once_as_skipped(tmp_path, capsys):
+    """Eine beim Sortieren verworfene Datei darf nicht zusätzlich als unlesbar zählen."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    (raw / "same.xml").write_text(_sdat("2024-01-01T01:00:00Z", "1.0"), encoding="utf-8")
+    destination = tmp_path / "out"
+    taken = destination / "sdat" / "same.xml"
+    taken.parent.mkdir(parents=True)
+    taken.write_text(_sdat("2024-01-01T02:00:00Z", "2.5"), encoding="utf-8")
+
+    report, sdat, _esl = _import(raw, destination, capsys)
+    assert any(issue["reason"] == "Doppelter Dateipfad" for issue in report["issues"])
+    assert report["files"] == [
+        {"type": "sdat", "found": 1, "processed": 0, "skipped": 1},
+        {"type": "esl", "found": 0, "processed": 0, "skipped": 0},
+    ]
+    assert (report["foundFiles"], report["processedFiles"], report["skippedFiles"]) == (1, 0, 1)
+    assert [value.volume for value in sdat["ID742"]] == [2.5]
+
+
+def test_conflicting_timestamp_counts_once_across_three_files(tmp_path, capsys):
+    """Der Hinweis nennt Zeitpunkte, nicht Lesungen: drei Werte sind ein Widerspruch."""
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    for index, volume in enumerate(("1.0", "2.0", "3.0")):
+        (raw / f"file{index}.xml").write_text(
+            _sdat(f"2024-01-0{index + 1}T01:00:00Z", volume), encoding="utf-8")
+
+    report, sdat, _esl = _import(raw, tmp_path / "out", capsys)
+    assert [value.volume for value in sdat["ID742"]] == [3.0]   # jüngste Creation gewinnt
+    duplicates = [f for f in report["findings"] if f["label"] == "Duplikate"]
+    assert len(duplicates) == 1
+    assert duplicates[0]["text"].startswith("1 Zeitpunkt mit widersprüchlichem Wert.")

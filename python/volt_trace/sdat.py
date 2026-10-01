@@ -41,9 +41,11 @@ class SdatSource:
 
 
 class SdatDataset(dict[str, List[MeasuredValue]]):
-    def __init__(self, values: Dict[str, List[MeasuredValue]], sources: List[SdatSource]):
+    def __init__(self, values: Dict[str, List[MeasuredValue]], sources: List[SdatSource],
+                 conflicts: int = 0):
         super().__init__(values)
         self.sources = sources
+        self.conflicts = conflicts   # Zeitpunkte, für die Dateien verschiedene Werte liefern
 
 
 def _get_text(element, xpath) -> str:
@@ -241,13 +243,19 @@ def load_sdat_folder(folder_path: Path, skipped: List[dict] | None = None,
     eingelesen.sort(key=lambda eintrag: (eintrag[0], eintrag[1]))
 
     pro_sensor: Dict[str, Dict[datetime, MeasuredValue]] = {}
+    # Je Zeitpunkt einmal gezählt, auch wenn mehrere Dateien verschiedene Werte liefern;
+    # ein nochmals gelesener gleicher Wert ist kein Widerspruch.
+    widersprueche: set[Tuple[str, datetime]] = set()
     for _creation, _dateiname, messwerte_pro_sensor in eingelesen:
         for sensor_id, messwerte in messwerte_pro_sensor.items():
             bereits_gelesen = pro_sensor.setdefault(sensor_id, {})
             for messwert in messwerte:
+                vorher = bereits_gelesen.get(messwert.timestamp)
+                if vorher is not None and vorher.volume != messwert.volume:
+                    widersprueche.add((sensor_id, messwert.timestamp))
                 bereits_gelesen[messwert.timestamp] = messwert
 
     return SdatDataset({
         sensor_id: sorted(messwerte.values(), key=lambda m: m.timestamp)
         for sensor_id, messwerte in pro_sensor.items()
-    }, sources)
+    }, sources, len(widersprueche))
