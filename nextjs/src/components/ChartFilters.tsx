@@ -26,10 +26,9 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
 
   return <>
     <input type="hidden" name="dataset" value={dataset} />
-    <div className="flex flex-col gap-3">
-      <div className="flex items-end gap-3">
-      <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
-        <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
+    <div className="flex items-end gap-2 overflow-x-auto pb-1">
+      <div className="shrink-0 space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
+        <NativeSelect id="kind" name="kind" className="w-32" value={chartKind} disabled={!sensors.length} onChange={(event) => {
           const next = event.target.value;
           const range = sensorDateRange(sensors, next);
           setChartKind(next); setStart(range.first); setEnd(range.last);
@@ -40,36 +39,33 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
         </NativeSelect>
       </div>
       {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
-      {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
-        <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
+      {chartKind === "consumption" ? <div className="shrink-0 space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
+        <NativeSelect id="resolution" name="resolution" className="w-32" defaultValue={resolution} disabled={!sensors.length}>
           <NativeSelectOption value="day">Tag</NativeSelectOption>
           <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
             {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
           </NativeSelectOption>
         </NativeSelect>
       </div> : <input type="hidden" name="resolution" value={resolution} />}
-      </div>
-      <div className="flex flex-wrap items-end justify-end gap-3">
-        <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
-          <Input id="from" name="from" type="date" className="w-40" value={start} required
+        <div className="shrink-0 space-y-1.5"><Label htmlFor="from">Von</Label>
+          <Input id="from" name="from" type="date" className="w-32 px-2 text-sm" value={start} required
             min={first} max={end || last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setStart(event.currentTarget.value)} />
         </div>
-        <div className="space-y-1.5"><Label htmlFor="to">Bis</Label>
-          <Input id="to" name="to" type="date" className="w-40" value={end} required
+        <div className="shrink-0 space-y-1.5"><Label htmlFor="to">Bis</Label>
+          <Input id="to" name="to" type="date" className="w-32 px-2 text-sm" value={end} required
             min={start || first} max={last} disabled={!sensors.length} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setEnd(event.currentTarget.value)} />
         </div>
-        <div className="flex flex-wrap gap-2">
-          {datePresets.map((preset) => <Button key={preset} type="button"
+        <div className="flex shrink-0 gap-1">
+          {datePresets.map((preset) => <Button key={preset} type="button" className="px-2 text-xs"
             variant={activePreset === preset ? "secondary" : "outline"} aria-pressed={activePreset === preset}
             disabled={!last} onClick={(event) => {
               const range = presetRange(preset, end, first, last);
               setStart(range.from); setEnd(range.to); submit(event.currentTarget.form);
             }}>{preset}</Button>)}
         </div>
-        {!error && <span className="py-1 text-sm text-muted-foreground">{days} {days === 1 ? "Tag" : "Tage"}</span>}
-      </div>
+        {!error && <span className="w-20 shrink-0 whitespace-nowrap py-1 text-right text-sm tabular-nums text-muted-foreground">{days} {days === 1 ? "Tag" : "Tage"}</span>}
     </div>
     {error && sensors.length > 0 && <p id="date-error" role="alert" className="text-sm text-destructive">{error}</p>}
     <p className="pt-2 text-sm text-muted-foreground">{chartKind === "consumption" ? "Verbrauch" : "Zählerstand"} (kWh) · Europe/Zurich</p>

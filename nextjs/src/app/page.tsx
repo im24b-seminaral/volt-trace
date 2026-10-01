@@ -5,7 +5,7 @@ import ChartForm from "@/components/ChartForm";
 import ChartFilters from "@/components/ChartFilters";
 import HttpPostExport from "@/components/HttpPostExport";
 import { ChevronRight } from "lucide-react";
-import ImportReport from "@/components/ImportReport";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { localDayBoundsToUtcIso, localNextDayStartUtcIso } from "@/lib/datetime";
@@ -66,11 +66,13 @@ export default async function Home({ searchParams }: { searchParams: Promise<Rec
     <FileUpload variant="start" />
   </main>;
   return <main className="mx-auto max-w-5xl space-y-5 p-5 sm:p-8">
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex items-center justify-between gap-3">
       <h1 className="text-2xl font-semibold">Messdaten</h1>
+      {directory && <Button variant="outline" asChild>
+        <Link href={`/import/${encodeURIComponent(dataset)}`}>Bericht ansehen</Link>
+      </Button>}
     </div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
-    {directory && <ImportReport dataset={dataset} directory={directory} />}
     <ChartForm chart={
       error ? null
         : kind === "consumption"
