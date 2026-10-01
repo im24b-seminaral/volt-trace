@@ -79,5 +79,6 @@ export function presetRange(preset: DatePreset, end: string, first: string, last
 export function sensorColor(id: string): string {
   // Keep each sensor's colour when another sensor is deselected.
   const number = Number(id.replace(/\D/g, "")) || 0;
-  return `var(--chart-${number % 5 + 1})`;
+  const colors: Record<number, number> = { 26263: 4, 26257: 5, 26256: 2 };
+  return `var(--chart-${colors[number] ?? number % 5 + 1})`;
 }

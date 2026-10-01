@@ -26,10 +26,9 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
 
   return <>
     <input type="hidden" name="dataset" value={dataset} />
-    <div className="flex flex-col gap-3">
-      <div className="flex items-end gap-3">
-        <div className="space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
-          <NativeSelect id="kind" name="kind" value={chartKind} disabled={!sensors.length} onChange={(event) => {
+    <div className="flex items-end gap-2 overflow-x-auto pb-1">
+        <div className="shrink-0 space-y-1.5"><Label htmlFor="kind">Diagramm</Label>
+          <NativeSelect id="kind" name="kind" className="w-32" value={chartKind} disabled={!sensors.length} onChange={(event) => {
             const next = event.target.value;
             const range = sensorDateRange(sensorsFor(sensors, next), next);
             setChartKind(next); setStart(range.first); setEnd(range.last);
@@ -40,23 +39,21 @@ export default function ChartFilters({ dataset, sensors, selected, kind, from, t
           </NativeSelect>
         </div>
         {/* FA-08: Auflösung nur für Verbrauch; ESL-Zählerstände werden nie aggregiert. */}
-        {chartKind === "consumption" ? <div className="space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
-          <NativeSelect id="resolution" name="resolution" defaultValue={resolution} disabled={!sensors.length}>
+        {chartKind === "consumption" ? <div className="shrink-0 space-y-1.5"><Label htmlFor="resolution">Auflösung</Label>
+          <NativeSelect id="resolution" name="resolution" className="w-32" defaultValue={resolution} disabled={!sensors.length}>
             <NativeSelectOption value="day">Tag</NativeSelectOption>
             <NativeSelectOption value="15min" disabled={days > maxDetailDays}>
               {days > maxDetailDays ? `15 Minuten (max. ${maxDetailDays} Tage)` : "15 Minuten"}
             </NativeSelectOption>
           </NativeSelect>
         </div> : <input type="hidden" name="resolution" value={resolution} />}
-      </div>
-      <div className="flex flex-wrap items-end justify-end gap-3">
-        <div className="space-y-1.5"><Label htmlFor="from">Von</Label>
-          <Input id="from" name="from" type="date" className="w-40" value={start} required
+        <div className="shrink-0 space-y-1.5"><Label htmlFor="from">Von</Label>
+          <Input id="from" name="from" type="date" className="w-32 px-2 text-sm" value={start} required
             min={first} max={end || last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setStart(event.currentTarget.value)} />
         </div>
-        <div className="space-y-1.5"><Label htmlFor="to">Bis</Label>
-          <Input id="to" name="to" type="date" className="w-40" value={end} required
+        <div className="shrink-0 space-y-1.5"><Label htmlFor="to">Bis</Label>
+          <Input id="to" name="to" type="date" className="w-32 px-2 text-sm" value={end} required
             min={start || first} max={last} disabled={!first || !last} aria-describedby={error ? "date-error" : undefined}
             onInput={(event) => setEnd(event.currentTarget.value)} />
         </div>
