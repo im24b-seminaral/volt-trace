@@ -5,7 +5,7 @@ Dieses Dokument erklärt den Python-Teil von **Volt Trace** (`python/volt_trace/
 **Klassenmodell abgeglichen mit:** Git-Commit `3dcd2d49f1beeecf86fdf2049a4345898d8f35db` (01.10.2026) · **Pflichtenheft v1.0**
 **Architekturdiagramme:** [`docs/architecture/`](docs/architecture/) (Klassen- und Komponentendiagramm, FA-11)
 
-Die Übersicht über das ganze Projekt (Next.js, Installation, Web-Oberfläche) steht im [README im Hauptordner](../README.md). Was noch fehlt oder fehlerhaft ist, steht in [OFFENE_PUNKTE.md](../OFFENE_PUNKTE.md).
+Die Übersicht über das ganze Projekt (Next.js, Installation, Web-Oberfläche) steht im [README im Hauptordner](../README.md).
 
 ---
 
@@ -824,7 +824,7 @@ ElementTree schreibt Namensräume in geschweiften Klammern vor den Tag-Namen. Da
 
 ### `_load(dataset_dir)` – mit Zwischenspeicher (Cache)
 
-Alle SDAT-Dateien einzulesen kann lange dauern (siehe OFFENE_PUNKTE NFA-03). Ohne Cache müsste das **bei jedem Klick** neu passieren. Darum speichert `_load` das Ergebnis in der Datei `.processed-v2.cache` (nur eingelesene SDAT/ESL-Strukturen, **ohne** `calculate_all_meter_readings`).
+Alle SDAT-Dateien einzulesen kann lange dauern (NFA-03). Ohne Cache müsste das **bei jedem Klick** neu passieren. Darum speichert `_load` das Ergebnis in der Datei `.processed-v3.cache` (nur eingelesene SDAT/ESL-Strukturen, **ohne** `calculate_all_meter_readings`).
 
 Die Frage ist: **Wann ist der Cache noch gültig?** Dafür wird ein **Fingerabdruck** berechnet – wie ein Siegel auf einem Brief. Wenn sich irgendetwas ändert, passt das Siegel nicht mehr.
 
@@ -1076,7 +1076,7 @@ python -m pytest -q
 | `tests/test_quantities.py` | `round_kwh` / Summen (NFA-04) |
 | `tests/test_sdat_timestamps.py` | FA-05: 96/92/100/2976, Unit, Sequenz |
 
-Es gibt **kein** dediziertes `test_export.py`; FA-10 wird indirekt über `export.py`-Nutzung in `cli`/`main` abgedeckt — formale CSV-Contract-Tests sind offen (siehe OFFENE_PUNKTE).
+Es gibt **kein** dediziertes `test_export.py`; FA-10 wird indirekt über `export.py`-Nutzung in `cli`/`main` abgedeckt — formale CSV-Contract-Tests sind offen.
 
 Der Status «grün» gilt nur nach lokalem `pytest` auf dem referenzierten Commit; CI-Ergebnisse werden in #15 (`docs/acceptance/`) geführt.
 
@@ -1147,7 +1147,7 @@ for problem in skipped:
 
 ## 14. Bekannte Schwachstellen im Code
 
-Die vollständige Liste mit Prioritäten steht in [OFFENE_PUNKTE.md](../OFFENE_PUNKTE.md). Hier nur, was man beim **Lesen des Codes** wissen sollte:
+Was man beim **Lesen des Codes** wissen sollte:
 
 | Stelle | Was passiert | Folge |
 |--------|--------------|-------|

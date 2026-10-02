@@ -7,7 +7,7 @@ eigenes Issue an den Dateieigentümer:
 |---|---|
 | Diagramme, ChartForm, Zeitdarstellung (FA-08, FA-09, NFA-05) | **#11** |
 | Python-Verarbeitung, Upload, Export, Fortschritt (FA-01, FA-02, FA-10, NFA-01, NFA-06) | **#12** |
-| PYTHON.md, OFFENE_PUNKTE.md, Architektur-Doku | **#14** |
+| PYTHON.md, Architektur-Doku | **#14** |
 
 Ein Befund wird erst geschlossen, wenn die Prüfung auf einem neuen Commit wiederholt und bestanden ist.
 
