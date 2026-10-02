@@ -31,7 +31,7 @@ Ausführliche Erläuterung der Module: [`PYTHON.md`](../../PYTHON.md) (Kap. 4 un
 | Issue | Schreibbereich |
 |-------|----------------|
 | #12 | Python-Quellcode, Tests, README, Upload/Export-Integration |
-| #14 | `PYTHON.md`, `OFFENE_PUNKTE.md`, `docs/architecture/**` |
+| #14 | `PYTHON.md`, `docs/architecture/**` |
 | #15 | `docs/acceptance/`, `tests/acceptance/` |
 
 Endgültiger Diagramm-/Codeabgleich erfolgt am **integrierten Abgabecommit**, nicht durch parallele Edits derselben Quellfiles.
